@@ -1,0 +1,51 @@
+Parameter,Symbol,Value,Units,Subsystem,Source_Classification,Legacy_Model_Value,Audit_Notes
+Nominal pack voltage,V_nom,14.8,V,Battery,Design Specification,3.6 V (single cell),4S LiPo replaces legacy single-cell assumption
+Pack capacity,C_bat,5.0,Ah,Battery,Design Specification,n/a,5000 mAh; 74.0 Wh nominal energy
+Pack internal resistance,R_0,0.020,ohm,Battery,Design Specification,0 ohm,5 mOhm per series cell; legacy zero-R short-circuit eliminated
+Usable depth of discharge,DoD,0.80,-,Battery,Design Specification,n/a,Mission-energy study assumption only
+Motor speed constant,KV,920,KV,Motor/ESC,Representative Component Spec,n/a,2216-class BLDC; representative UAV component class
+Winding resistance,R_m,0.085,ohm,Motor/ESC,Representative Component Spec,0 ohm,Legacy zero resistance removed; enables I^2 R copper loss
+Torque constant,K_t,0.0104,N*m/A,Motor/ESC,Analytically Derived,n/a,K_t = 60/(2*pi*KV)
+Motor rotor inertia,J_m,1.5e-5,kg*m^2,Motor/ESC,Representative Component Spec,mismatched,Sized to 2216-class rotor
+ESC efficiency,eta_ESC,0.95,-,Motor/ESC,Design Specification,n/a,"Documented constant approximation, not measured"
+Maximum rotor speed,RPM_max,9000,RPM,Motor/ESC,Design Specification,n/a,4S loaded ceiling
+Maximum angular speed,omega_max,942.48,rad/s,Motor/ESC,Analytically Derived,n/a,RPM_max * 2*pi/60
+Maximum squared speed,omega_max_sq,8.8826e5,(rad/s)^2,Motor/ESC,Analytically Derived,n/a,Mixer saturation limit
+Propeller diameter,D,0.254,m,Propeller,Design Specification,1.5 m,Legacy helicopter-scale rotor corrected to 10-inch class
+Propeller mass (legacy defect),m_prop,n/a,kg,Propeller,Audit Record,10 kg,Legacy 10 kg value invalid; not carried in 6-DoF plant
+Thrust coefficient,C_T,0.110,-,Propeller,Representative Component Spec,n/a,Standard static rotor aerodynamic coefficient
+Torque coefficient,C_Q,0.0090,-,Propeller,Representative Component Spec,n/a,Standard static rotor aerodynamic coefficient
+Propeller inertia,J_p,5.0e-5,kg*m^2,Propeller,Representative Component Spec,mismatched,Sized to 10-inch propeller
+Air density,rho,1.225,kg/m^3,Propeller,Design Specification,n/a,Standard sea-level atmosphere
+Baseline total mass,m,2.00,kg,Airframe/Inertia,Design Specification,0.07 kg (HoverLock),Matched to mg = 19.62 N; legacy hover mass mismatch documented
+Gravity,g,9.81,m/s^2,Airframe/Inertia,Design Specification,9.81,Standard gravity
+Arm length,l,0.225,m,Airframe/Inertia,Design Specification,n/a,450 mm-class diagonal wheelbase
+Principal inertia Ixx,Ixx,0.021,kg*m^2,Airframe/Inertia,Design Specification,n/a,Symmetric rigid-body tensor assumption
+Principal inertia Iyy,Iyy,0.021,kg*m^2,Airframe/Inertia,Design Specification,n/a,Symmetric rigid-body tensor assumption
+Principal inertia Izz,Izz,0.040,kg*m^2,Airframe/Inertia,Design Specification,n/a,Symmetric rigid-body tensor assumption
+Linear drag matrix,D_drag,"diag(0,0,0)",N/(m/s),Airframe/Inertia,Design Specification (intentional omission),n/a,Drag set to zero by design; documented model limitation
+Lumped thrust constant,kf,1.420705e-5,N/(rad/s)^2,Aerodynamic Bridge,Analytically Derived,0 (HoverLock),kf = CT*rho*D^4/(4*pi^2); verified against simlog sweep
+Lumped torque constant,km,2.952483e-7,N*m/(rad/s)^2,Aerodynamic Bridge,Analytically Derived,0 (HoverLock),km = CQ*rho*D^5/(4*pi^2); legacy zero-yaw-authority defect retired
+Hover rotor speed,omega_hover,587.58,rad/s,Aerodynamic Bridge,Analytically Derived,n/a,5611.0 RPM; sqrt(m*g/(4*kf))
+Total maximum static thrust,T_max,50.48,N,Aerodynamic Bridge,Analytically Derived,n/a,4*kf*omega_max^2
+Baseline thrust-to-weight ratio,TWR,2.57,-,Aerodynamic Bridge,Analytically Derived,n/a,T_max/(m*g); Test 4 summary
+Altitude P gain,Kp_z,18.0,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 3 rad/s, zeta = 0.9"
+Altitude D gain,Kd_z,10.8,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 3 rad/s, zeta = 0.9"
+Roll P gain,Kp_phi,0.756,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 6 rad/s, zeta = 0.85"
+Roll D gain,Kd_phi,0.2142,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 6 rad/s, zeta = 0.85"
+Pitch P gain,Kp_theta,0.756,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 6 rad/s, zeta = 0.85"
+Pitch D gain,Kd_theta,0.2142,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 6 rad/s, zeta = 0.85"
+Yaw P gain,Kp_psi,0.640,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 4 rad/s, zeta = 0.9"
+Yaw D gain,Kd_psi,0.2880,-,PD Gains,Tuned Baseline Gain,default/uncalibrated,"wn = 4 rad/s, zeta = 0.9"
+Test 1 mass,m_test1,2.00,kg,Test Conditions,Design Specification,n/a,Hover equilibrium; Ti = m*g/4
+Test 2 roll/pitch pulse,tau_pulse,0.01,N*m,Test Conditions,Design Specification,n/a,Separate 2.0 s clean pulses
+Test 3 yaw pulse,tau_yaw,0.02,N*m,Test Conditions,Design Specification,n/a,5.0 s reaction-torque pulse
+Test 4 payload masses,m_payload,"2.0, 2.5, 3.0",kg,Test Conditions,Design Specification,n/a,19.62 / 24.525 / 29.43 N required thrust
+Test 5 attitude step,step_deg,10,deg,Test Conditions,Design Specification,n/a,Closed-loop PD roll/pitch step at t = 1.0 s
+AUDIT: legacy rotor scale,D_legacy,1.5,m,ElectroMechanics_Q.slx,Audit Record,1.5 m / 10 kg,DEFECT RESOLVED: replaced by 0.254 m 10-inch propeller
+AUDIT: legacy winding resistance,R_m_legacy,0,ohm,ElectroMechanics_Q.slx,Audit Record,0 ohm,DEFECT RESOLVED: set to 0.085 ohm
+AUDIT: legacy battery,V_batt_legacy,3.6,V,ElectroMechanics_Q.slx,Audit Record,3.6 V single cell,"DEFECT RESOLVED: 14.8 V 4S pack, 0.020 ohm"
+AUDIT: legacy motor spin/thrust,spin_legacy,cancellation,-,ElectroMechanics_Q.slx,Audit Record,opposing spin/thrust cancellation,DEFECT RESOLVED: CW/CCW routing verified
+AUDIT: HoverLock mass/thrust,m_hoverlock,0.07,kg,HoverLock.slx,Audit Record,0.07 kg vs 19.62 N feed-forward,DEFECT RESOLVED: model retired; preserved unmodified
+AUDIT: HoverLock yaw constant,km_hoverlock,0,N*m/(rad/s)^2,HoverLock.slx,Audit Record,0,DEFECT RESOLVED: model retired; clean 6-DoF build uses km > 0
+AUDIT: HoverLock mixer,M1_M4,non-geometric,-,HoverLock.slx,Audit Record,M1-M4 blocks,DEFECT RESOLVED: replaced by derived 4x4 B_eff/B_mixer
