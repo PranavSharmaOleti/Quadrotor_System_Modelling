@@ -1,0 +1,58 @@
+{
+  "experiment": "attitude_step",
+  "created_utc": "2026-11-06T09:59:55.177+00:00",
+  "connect": "udpin://0.0.0.0:14540",
+  "vehicle": "gz_x500 (standard)",
+  "params": {
+    "roll_deg": 10.0,
+    "level_s": 5.0,
+    "hold_s": 8.0,
+    "settle_s": 5.0,
+    "altitude_m": 2.5,
+    "stream_hz": 5.0,
+    "hover_thrust_arg": null,
+    "hover_thrust_used": 0.5,
+    "thrust_frozen": 0.65
+  },
+  "phases": {
+    "takeoff": {
+      "start_epoch": 1793959196.8273852,
+      "start_utc": "2026-11-06T09:59:56.827+00:00",
+      "end_epoch": 1793959207.4384825,
+      "end_utc": "2026-11-06T10:00:07.438+00:00"
+    },
+    "level": {
+      "start_epoch": 1793959208.0823827,
+      "start_utc": "2026-11-06T10:00:08.082+00:00",
+      "end_epoch": 1793959213.0894136,
+      "end_utc": "2026-11-06T10:00:13.089+00:00"
+    },
+    "step": {
+      "start_epoch": 1793959213.0894532,
+      "start_utc": "2026-11-06T10:00:13.089+00:00",
+      "end_epoch": 1793959221.107467,
+      "end_utc": "2026-11-06T10:00:21.107+00:00"
+    },
+    "return_settle": {
+      "start_epoch": 1793959221.1075048,
+      "start_utc": "2026-11-06T10:00:21.107+00:00",
+      "end_epoch": 1793959226.1134672,
+      "end_utc": "2026-11-06T10:00:26.113+00:00"
+    },
+    "offboard_stop": {
+      "start_epoch": 1793959226.1135278,
+      "start_utc": "2026-11-06T10:00:26.113+00:00"
+    },
+    "land": {
+      "start_epoch": 1793959227.1315176,
+      "start_utc": "2026-11-06T10:00:27.131+00:00",
+      "end_epoch": 1793959228.8266006,
+      "end_utc": "2026-11-06T10:00:28.826+00:00"
+    }
+  },
+  "status": "completed",
+  "ulog": "/home/sankara/Projects/Quadrotor-CrossSim/px4-data/px4/rootfs/fs/log/2026-11-06/09_52_14.ulg",
+  "yaw_deg": 96.00017547607422,
+  "finished_utc": "2026-11-06T10:00:28.842+00:00",
+  "stream_errors": 0
+}

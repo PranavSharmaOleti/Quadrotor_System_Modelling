@@ -1,0 +1,55 @@
+# PX4 SITL + Gazebo Harmonic — headless, for cross-simulation experiments.
+# Official image : https://hub.docker.com/r/px4io/px4-sitl-gazebo
+# Official docs  : https://docs.px4.io/main/en/simulation/px4_sitl_prebuilt_packages
+#
+# IMAGE TAG NOTE
+# There is currently NO stable (non-prerelease) tag published for
+# px4io/px4-sitl-gazebo — every published tag is an alpha/beta/rc build
+# (verified against Docker Hub: the v1.17.0 filter returns only
+# v1.17.0-alpha1-* variants, and v1.16 returns nothing). The tag below is the
+# exact build already validated on this host (Gazebo world loads, X500 spawns).
+# It is pinned explicitly rather than :latest so the setup stays reproducible.
+# When a stable tag (e.g. v1.17.0) is published, swap it in below. A digest
+# pin for strict immutability is shown in the comment.
+
+services:
+  px4-sitl:
+    image: px4io/px4-sitl-gazebo:v1.18.0-beta1-660-g61907962c9
+    # Strict-immunity alternative (same build, content-addressed):
+    # image: px4io/px4-sitl-gazebo@sha256:29a5a1b5af77e5d39b67bc6664d36acead63f9dfb829475216522b1feec8036e
+    container_name: px4-sitl
+
+    # Host networking: PX4's MAVLink defaults to localhost. Sharing the host
+    # network namespace lets host-side QGroundControl (UDP 14550) and MAVSDK
+    # (UDP 14540) reach PX4 with no port publishing and no broadcast param.
+    # This is the documented Linux setup (docs: "On Linux, add --network host").
+    network_mode: host
+
+    environment:
+      HEADLESS: "1"                 # Gazebo server only, no GUI
+      PX4_SIM_MODEL: gz_x500        # standard X500 quadcopter
+      PX4_GZ_WORLD: default
+      PX4_ROS2_MIDDLEWARE: "none"   # no ROS 2 / DDS / Zenoh (experiment is MAVLink-only)
+
+      # gz-transport discovery. On this host the shared netns has several
+      # interfaces (lo / eth0 / docker0); gz auto-selects the wrong one and the
+      # gz server + gz_bridge never find each other, so PX4 times out waiting
+      # for the Gazebo world. Forcing loopback fixes it (root cause confirmed).
+      GZ_IP: 127.0.0.1
+
+      # Headless rendering with no GPU (no /dev/dri passthrough, per constraints).
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      MESA_GL_VERSION_OVERRIDE: "3.3"
+      PX4_GZ_SIM_RENDER_ENGINE: ogre
+
+      # Everything PX4 persists (parameters, dataman, ULogs) is written under
+      # $XDG_DATA_HOME/px4/rootfs/... — see the volume below.
+      XDG_DATA_HOME: /px4-data
+
+    volumes:
+      # Bind mount (not a named volume), so `docker compose down` never deletes
+      # it. ULogs land in ./px4-data/px4/rootfs/fs/log/ and survive shutdown.
+      - ./px4-data:/px4-data
+
+    # No restart policy on purpose: a boot failure should stay visible instead
+    # of silently looping.
