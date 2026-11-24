@@ -6,7 +6,7 @@ clear; clc; close all;
 
 % 1. Load baseline parameters into base workspace
 init_6dof_params;
-modelName = 'Quadrotor_6Dof';
+modelName = 'Quadrotor_6DoF';
 load_system(modelName);
     
 % Create exact output directories from Master Blueprint (Part 5)
