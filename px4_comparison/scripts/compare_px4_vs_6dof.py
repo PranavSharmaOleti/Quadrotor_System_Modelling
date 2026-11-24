@@ -41,9 +41,10 @@ def step_onset(t: np.ndarray, sp_deg: np.ndarray) -> float:
     return float(t[idx])
 
 
-def step_metrics(t: np.ndarray, sp: np.ndarray, actual: np.ndarray, t_step: float):
-    """Metrics for one axis after step onset. sp/actual in degrees."""
-    post = t >= t_step
+def step_metrics(t: np.ndarray, sp: np.ndarray, actual: np.ndarray,
+                 t_step: float, t_end: float):
+    """Metrics for one axis over the constant-step hold [t_step, t_end]."""
+    post = (t >= t_step) & (t <= t_end)
     tp, sp_post, a_post = t[post], sp[post], actual[post]
     if len(tp) < 10:
         return {k: np.nan for k in ("rmse_vs_sp_deg", "peak_overshoot_pct",
@@ -56,7 +57,7 @@ def step_metrics(t: np.ndarray, sp: np.ndarray, actual: np.ndarray, t_step: floa
     amplitude = yf - y0
     peak = float(np.max(a_post)) if amplitude >= 0 else float(np.min(a_post))
 
-    if abs(amplitude) > 1e-6:
+    if abs(amplitude) > 0.5:  # ignore axes with no commanded step
         overshoot = float(max(0.0, (peak - yf) / amplitude * 100))
         lo, hi = y0 + 0.1 * amplitude, y0 + 0.9 * amplitude
         above_lo = np.where((a_post >= min(lo, hi)) & (a_post <= max(lo, hi)))[0]
@@ -65,6 +66,8 @@ def step_metrics(t: np.ndarray, sp: np.ndarray, actual: np.ndarray, t_step: floa
         overshoot, t_rise = np.nan, np.nan
 
     def settling(band_pct: float) -> float:
+        if abs(amplitude) <= 0.5:
+            return np.nan
         band = abs(amplitude) * band_pct / 100.0
         outside = np.where(np.abs(a_post - yf) > band)[0]
         if len(outside) == 0:
@@ -101,18 +104,28 @@ def main() -> None:
     t0 = max(float(px4["t_s"].min()), float(sim["time_s"].min()))
     t1 = min(float(px4["t_s"].max()), float(sim["time_s"].max()))
     t_step = step_onset(px4["t_s"].to_numpy(), px4["phi_sp_deg"].to_numpy())
+    # End of the constant-amplitude hold: first return below half amplitude
+    sp_roll_all = px4["phi_sp_deg"].to_numpy()
+    half = 0.5 * (np.nanmax(sp_roll_all) + np.nanmin(sp_roll_all))
+    after = np.where((px4["t_s"].to_numpy() > t_step + 0.5) &
+                     (sp_roll_all <= half))[0]
+    t_end = float(px4["t_s"].to_numpy()[after[0]]) if len(after) else t_step + 8.0
     t = np.arange(t0, t1, 0.01)
     t_rel = t - t_step
+    print(f"Step window: onset t_step = {t_step:.3f} s, hold end = {t_end:.3f} s "
+          f"({t_end - t_step:.3f} s hold)")
 
     def interp(df, time_col, value_col):
         return np.interp(t, df[time_col].to_numpy(), df[value_col].to_numpy())
 
     sp_roll = interp(px4, "t_s", "phi_sp_deg")
     sp_pitch = interp(px4, "t_s", "theta_sp_deg")
-    sp_yaw = interp(px4, "t_s", "psi_sp_deg")
+    # Yaw is reported RELATIVE to the window-start heading: the Simulink replay
+    # normalises the absolute PX4 NED heading (~96 deg) so the plant can start at psi=0.
+    sp_yaw = interp(px4, "t_s", "psi_sp_deg") - float(px4["psi_sp_deg"].iloc[0])
     px4_roll = interp(px4, "t_s", "phi_px4_deg")
     px4_pitch = interp(px4, "t_s", "theta_px4_deg")
-    px4_yaw = interp(px4, "t_s", "psi_px4_deg")
+    px4_yaw = interp(px4, "t_s", "psi_px4_deg") - float(px4["psi_px4_deg"].iloc[0])
     sim_roll = interp(sim, "time_s", "phi_sim_deg")
     sim_pitch = interp(sim, "time_s", "theta_sim_deg")
     sim_yaw = interp(sim, "time_s", "psi_sim_deg")
@@ -128,9 +141,9 @@ def main() -> None:
 
     rows = []
     for name, (sp, p4, sm, rate4_series, rate_s_series, c4, cs) in axes.items():
-        m4 = step_metrics(t, sp, p4, t_step)
-        ms = step_metrics(t, sp, sm, t_step)
-        t_post = t >= t_step
+        m4 = step_metrics(t, sp, p4, t_step, t_end)
+        ms = step_metrics(t, sp, sm, t_step, t_end)
+        t_post = (t >= t_step) & (t <= t_end)
         cross_rmse = float(np.sqrt(np.mean((sm[t_post] - p4[t_post]) ** 2)))
         rate4 = float(np.interp(t[t_post], px4["t_s"], rate4_series).max())
         rates = float(np.interp(t[t_post], sim["time_s"], rate_s_series).max())
