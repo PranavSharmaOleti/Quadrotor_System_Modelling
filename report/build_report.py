@@ -40,13 +40,12 @@ def main() -> None:
              "-V", "geometry:margin=0.85in",
              "-V", "fontsize=10pt",
              "-V", "documentclass=article",
-             "--toc", "--toc-depth=2",
              "-H", PREAMBLE.name],
             check=True, env=env,
         )
         pypandoc.convert_file(
             MD.name, "docx", outputfile=DOCX.name, format="md",
-            extra_args=["--toc", "--toc-depth=2", "--resource-path=."],
+            extra_args=["--resource-path=."],
         )
         print(f"PDF : {PDF} ({PDF.stat().st_size} bytes)")
         print(f"DOCX: {DOCX} ({DOCX.stat().st_size} bytes)")

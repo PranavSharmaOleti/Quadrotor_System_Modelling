@@ -1,13 +1,14 @@
-# Modular Verification of a 2 kg Quadrotor: Propulsion, Six-Degree-of-Freedom Dynamics, Mission Energy, and PX4 Cross-Simulation
-
-**Author:** Pranav Sharma Oleti — Quadrotor System Modelling Project, Department of Mechanical Engineering
-**Date:** 25 November 2026
-
+---
+title: 'Modular Verification of a 2 kg Quadrotor: Propulsion, Six-Degree-of-Freedom Dynamics, Mission Energy, and PX4 Cross-Simulation'
+author: 'Pranav Sharma Oleti — Department of Mechanical Engineering — pranavsharmavoleti1229@gmail.com'
+date: '25 November 2026'
 ---
 
 ## Abstract
 
 This paper presents a modular verification framework for a 2.00 kg quadrotor unmanned aerial vehicle, developed to replace two legacy Simulink models whose parameter and structural defects precluded reliable flight-dynamics prediction. The methodology couples a corrected Simscape propulsion model, an independently derived analytical verification protocol, a clean six-degree-of-freedom rigid-body plant, system-level mission analysis, and a simulation-to-simulation cross-comparison against PX4 Software-In-The-Loop telemetry. An eight-point steady operating sweep was verified against momentum theory with maximum thrust, torque, and shaft-power errors of 0.0073 %, 0.0031 %, and 0.0032 %. The fitted single-rotor electrical model yields 256.1 W total hover power at the 4.905 N per-rotor trim condition. A four-phase mission of 670 s consumes 47.72 Wh and finishes at 34.15 % state of charge, above the 20 % reserve. Replaying a matched 10° roll step through the six-degree-of-freedom plant gives a cross-simulator attitude RMSE of 0.629°, with PX4 rising in 0.33 s against 0.43 s for the plant. The results demonstrate that transparent first-principles modelling reproduces the closed-loop behaviour of a representative autopilot simulation while exposing controller and actuation differences that must be resolved before physical validation.
+
+**Keywords:** quadrotor; propulsion characterisation; six-degree-of-freedom dynamics; mission energy; PX4 software-in-the-loop.
 
 ---
 
@@ -150,6 +151,9 @@ $$
 
 Gains are $K_{p,z}=18.0$, $K_{d,z}=10.8$, $K_{p,\phi}=K_{p,\theta}=0.756$, $K_{d,\phi}=K_{d,\theta}=0.2142$, $K_{p,\psi}=0.640$, and $K_{d,\psi}=0.2880$. No handwritten integrator is used; the blockset supplies all state integration.
 
+![System architecture](../configuration/Quadrotor_6DoF_architecture.png)
+*Figure 1. System architecture of the six-degree-of-freedom plant showing the controller, allocation, rotor, and rigid-body subsystems.*
+
 ---
 
 ## 3. Verification Methodology
@@ -200,27 +204,27 @@ The eight-point sweep spans 0.623 N to 12.609 N single-rotor thrust. Terminal vo
 | 8996 | 149.9 | 942.1 | 12.61 | 0.2620 | 246.9 | 99.69 | 12.81 | 319.2 |
 
 ![Thrust versus RPM](../propulsion_analysis/plots/thrust_vs_rpm.png)
-*Figure 1. Simulated and analytical single-rotor thrust across the operating sweep.*
+*Figure 2. Simulated and analytical single-rotor thrust across the operating sweep.*
 
 ![Torque versus RPM](../propulsion_analysis/plots/torque_vs_rpm.png)
-*Figure 2. Simulated and analytical single-rotor reaction torque across the operating sweep.*
+*Figure 3. Simulated and analytical single-rotor reaction torque across the operating sweep.*
 
 ![Power versus thrust](../propulsion_analysis/plots/power_vs_thrust.png)
-*Figure 3. Single-rotor shaft and electrical power against thrust; the marker denotes the 4.905 N hover trim at 64.03 W.*
+*Figure 4. Single-rotor shaft and electrical power against thrust; the marker denotes the 4.905 N hover trim at 64.03 W.*
 
 ![Battery behaviour](../propulsion_analysis/plots/battery_behaviour.png)
-*Figure 4. Terminal-voltage sag and pack current against rotor speed.*
+*Figure 5. Terminal-voltage sag and pack current against rotor speed.*
 
 ### 4.2 Six-Degree-of-Freedom Flight Dynamics Verification
 
 ![Test 1](../flight_dynamics_6dof/test1_hover_equilibrium/test1_hover_equilibrium.png)
-*Figure 5. Test 1, open-loop hover equilibrium at 587.6 rad·s$^{-1}$ and 10.0 m.*
+*Figure 6. Test 1, open-loop hover equilibrium at 587.6 rad·s$^{-1}$ and 10.0 m.*
 
 ![Test 2](../flight_dynamics_6dof/test2_roll_pitch_response/test2_roll_pitch_response.png)
-*Figure 6. Test 2, separate roll and pitch pulses of +0.01 N·m.*
+*Figure 7. Test 2, separate roll and pitch pulses of +0.01 N·m.*
 
 ![Test 3](../flight_dynamics_6dof/test3_yaw_response/test3_yaw_response.png)
-*Figure 7. Test 3, pure yaw reaction-torque response to a +0.02 N·m pulse.*
+*Figure 8. Test 3, pure yaw reaction-torque response to a +0.02 N·m pulse.*
 
 | Mass (kg) | Hover thrust (N) | Hover speed (rad/s) | Hover speed (RPM) | TWR | Margin (N) |
 |---|---|---|---|---|---|
@@ -231,17 +235,17 @@ The eight-point sweep spans 0.623 N to 12.609 N single-rotor thrust. Terminal vo
 *Table 1. Test 4 payload equilibrium for the three mandatory mass cases.*
 
 ![Test 4](../flight_dynamics_6dof/test4_payload_equilibrium/test4_payload_equilibrium.png)
-*Figure 8. Test 4, altitude and rotor-speed response for the three payload cases.*
+*Figure 9. Test 4, altitude and rotor-speed response for the three payload cases.*
 
 ![Test 5](../flight_dynamics_6dof/test5_pd_control_response/test5_pd_control_response.png)
-*Figure 9. Test 5, closed-loop proportional–derivative tracking of a 10° step. Tilt compensation raises total thrust to 20.24 N, equivalent to 596.7 rad·s$^{-1}$; Euler kinematics produce a 0.559° yaw transient that the loop corrects.*
+*Figure 10. Test 5, closed-loop proportional–derivative tracking of a 10° step. Tilt compensation raises total thrust to 20.24 N, equivalent to 596.7 rad·s$^{-1}$; Euler kinematics produce a 0.559° yaw transient that the loop corrects.*
 
 ### 4.3 Payload Margin, Sensitivity, and Mission Energy
 
 The selected electrical fit was cubic, with $R^2=0.999935$ and RMSE 0.838 W. Fitted hover power is 64.03 W per rotor, or 256.1 W total, positioned between the 5000 and 6000 RPM sweep points.
 
 ![Power fit](../mission_analysis/plots/power_thrust_fit.png)
-*Figure 10. Electrical power against thrust with the selected fit and hover operating point.*
+*Figure 11. Electrical power against thrust with the selected fit and hover operating point.*
 
 | Mass (kg) | Added payload (kg) | Total thrust (N) | Per rotor (N) | RPM | TWR | Margin (N) | Electrical power (W) | Endurance (min) |
 |---|---|---|---|---|---|---|---|---|
@@ -252,7 +256,7 @@ The selected electrical fit was cubic, with $R^2=0.999935$ and RMSE 0.838 W. Fit
 *Table 2. Payload and thrust-margin study; hover speed and TWR agree with the flight-dynamics test to within 0.0005 %.*
 
 ![Payload margin](../mission_analysis/plots/payload_thrust_margin.png)
-*Figure 11. Thrust-to-weight ratio, thrust margin, hover power, and endurance against vehicle mass.*
+*Figure 12. Thrust-to-weight ratio, thrust margin, hover power, and endurance against vehicle mass.*
 
 | Case | $D$ (m) | $C_T$ | Hover RPM | Max thrust (N) | TWR | Hover power (W) |
 |---|---|---|---|---|---|---|
@@ -265,7 +269,7 @@ The selected electrical fit was cubic, with $R^2=0.999935$ and RMSE 0.838 W. Fit
 *Table 3. One-at-a-time ±10 % parameter sensitivity.*
 
 ![Sensitivity](../mission_analysis/plots/parameter_sensitivity.png)
-*Figure 12. Percentage change in hover speed, maximum thrust, thrust-to-weight ratio, and hover power.*
+*Figure 13. Percentage change in hover speed, maximum thrust, thrust-to-weight ratio, and hover power.*
 
 | Phase | Duration (s) | Multiplier | Total thrust (N) | Power (W) | Pack current (A) | Phase energy (Wh) | Cumulative (Wh) | SoC (%) |
 |---|---|---|---|---|---|---|---|---|
@@ -278,7 +282,7 @@ The selected electrical fit was cubic, with $R^2=0.999935$ and RMSE 0.838 W. Fit
 *Table 4. Four-phase mission profile; total energy is 171.8 kJ and the final state of charge clears the 20 % reserve.*
 
 ![Mission energy](../mission_analysis/plots/mission_energy_profile.png)
-*Figure 13. Piecewise-constant thrust and power with linearly accumulating energy and linearly decreasing state of charge.*
+*Figure 14. Piecewise-constant thrust and power with linearly accumulating energy and linearly decreasing state of charge.*
 
 | Case | Capacity (A·h) | Mass (kg) | Endurance (min) | Mission energy (Wh) | Post-mission SoC (%) | Reserve met |
 |---|---|---|---|---|---|---|
@@ -292,7 +296,7 @@ The selected electrical fit was cubic, with $R^2=0.999935$ and RMSE 0.838 W. Fit
 *Table 5. Battery-capacity sensitivity with and without the 0.10 kg per A·h mass penalty.*
 
 ![Battery sensitivity](../mission_analysis/plots/battery_capacity_sensitivity.png)
-*Figure 14. Hover endurance and post-mission state of charge versus pack capacity.*
+*Figure 15. Hover endurance and post-mission state of charge versus pack capacity.*
 
 ### 4.4 PX4 SITL versus Simulink Six-Degree-of-Freedom Cross-Simulation
 
@@ -315,13 +319,13 @@ The matched maneuver was a +10° roll step held for 8.06 s within a 14.01 s alig
 *Table 7. Transient step-response metrics. All values derive from simulated traces; no flight-test data are involved.*
 
 ![Attitude overlay](../px4_comparison/comparison_results/attitude_overlay_comparison.png)
-*Figure 15. Setpoint, PX4 simulation, and plant response for roll, pitch, and yaw.*
+*Figure 16. Setpoint, PX4 simulation, and plant response for roll, pitch, and yaw.*
 
 ![Angular rate](../px4_comparison/comparison_results/angular_rate_comparison.png)
-*Figure 16. Body angular rates for the two simulated systems.*
+*Figure 17. Body angular rates for the two simulated systems.*
 
 ![Tracking error](../px4_comparison/comparison_results/tracking_error_comparison.png)
-*Figure 17. Roll tracking error and altitude-hold comparison.*
+*Figure 18. Roll tracking error and altitude-hold comparison.*
 
 ---
 
