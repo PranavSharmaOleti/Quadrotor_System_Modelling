@@ -370,16 +370,31 @@ def main() -> None:
           f"-> reserve (>=20%): {'PASS' if final_soc >= SOC_RESERVE else 'FAIL'}")
 
     fig, axes = plt.subplots(2, 2, figsize=(11, 7.4))
-    t_axis = np.concatenate([[0], np.cumsum(mission["Duration_s"].to_numpy())])
+    # Build a uniform fine time grid across the whole 670 s mission.
+    # Thrust and power are piecewise CONSTANT per phase; cumulative energy
+    # ramps LINEARLY and SoC falls LINEARLY between phase boundaries.
+    bounds = np.concatenate([[0.0], np.cumsum(mission["Duration_s"].to_numpy())])
+    t_fine = np.linspace(0.0, bounds[-1], int(bounds[-1] * 4) + 1)  # 4 Hz
+    phase_idx = np.clip(np.searchsorted(bounds, t_fine, side="right") - 1,
+                        0, len(mission) - 1)
+    cum_wh_bounds = np.concatenate([[0.0], mission["Cumulative_Energy_Wh"].to_numpy()])
+    soc_bounds = np.concatenate([[100.0], mission["End_SoC_pct"].to_numpy()])
+    traces = {
+        "Total_Thrust_N": mission["Total_Thrust_N"].to_numpy()[phase_idx],
+        "Total_Elec_Power_W": mission["Total_Elec_Power_W"].to_numpy()[phase_idx],
+        "Cumulative_Energy_Wh": np.interp(t_fine, bounds, cum_wh_bounds),
+        "End_SoC_pct": np.interp(t_fine, bounds, soc_bounds),
+    }
     for ax, col, title, ylabel in zip(
         axes.flat,
         ["Total_Thrust_N", "Total_Elec_Power_W", "Cumulative_Energy_Wh", "End_SoC_pct"],
         ["Total thrust", "Total electrical power", "Cumulative energy", "Battery SoC"],
         ["Thrust [N]", "Power [W]", "Energy [Wh]", "SoC [%]"],
     ):
-        vals = mission[col].to_numpy()
-        ax.step(t_axis, np.concatenate([[vals[0]], vals]), where="post", lw=2)
-        ax.fill_between(t_axis, np.concatenate([[vals[0]], vals]), step="post", alpha=0.15)
+        ax.plot(t_fine, traces[col], lw=2)
+        ax.fill_between(t_fine, traces[col], alpha=0.12)
+        for b in bounds:
+            ax.axvline(b, color="grey", ls=":", lw=0.7)
         if col == "End_SoC_pct":
             ax.axhline(SOC_RESERVE, color="r", ls="--", lw=1.3, label="20% reserve")
             ax.legend(fontsize=8)

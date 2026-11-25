@@ -127,9 +127,13 @@ def plot_all(df: pd.DataFrame) -> None:
             label="Electrical power (motor)")
     ax.axvline(HOVER_THRUST_PER_ROTOR, color="grey", ls=":", lw=1.4,
                label="Hover thrust / rotor")
-    ax.scatter([HOVER_THRUST_PER_ROTOR], [df["Motor_Elec_Power_W"].iloc[0]],
-               marker="*", s=180, color="gold", edgecolor="black", zorder=5,
-               label="Hover operating point")
+    # Fit the electrical-power curve so the marker sits at the true hover
+    # power (~64 W/rotor), not at the first (2.76 W) sweep point.
+    p_coef = np.polyfit(df["Thrust_N"], df["Motor_Elec_Power_W"], 3)
+    p_hover = float(np.polyval(p_coef, HOVER_THRUST_PER_ROTOR))
+    ax.scatter([HOVER_THRUST_PER_ROTOR], [p_hover],
+               marker="*", s=220, color="gold", edgecolor="black", zorder=5,
+               label=f"Hover operating point ({p_hover:.2f} W)")
     ax.set(xlabel="Single-rotor thrust [N]", ylabel="Power [W]",
            title="Power vs thrust — single rotor")
     ax.grid(True, alpha=0.3)

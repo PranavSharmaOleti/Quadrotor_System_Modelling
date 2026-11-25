@@ -1,344 +1,402 @@
-# Quadrotor UAV Engineering Investigation — Final Technical Report
+# Modular Verification of a 2 kg Quadrotor: Propulsion, Six-Degree-of-Freedom Dynamics, Mission Energy, and PX4 Cross-Simulation
 
-**Project:** Quadrotor System Modelling / Cross-Simulation
-**Repository evidence:** `Quadrotor_System_Modelling` (branch `main`)
-**Scope:** Seven-step model audit, propulsion characterisation, 6-DoF flight dynamics, mission analysis and PX4 SITL cross-simulation.
-**Reporting rule:** All quantitative results are reproduced from generated CSV/JSON artefacts in this repository. Every comparison in Section 6 is a **simulation-to-simulation cross-comparison**; no experimental flight validation is claimed.
+**Author:** Pranav Sharma Oleti — Quadrotor System Modelling Project, Department of Mechanical Engineering
+**Date:** 25 November 2026
 
 ---
 
-## 1. Executive Summary & System Overview
+## Abstract
 
-This investigation delivers an integrated, traceable engineering verification of a 2.00 kg-class quadrotor UAV across seven work packages. Rather than coupling legacy Simulink models in real time, a modular verification architecture was implemented:
-
-1. **Model audit and reimplementation (Steps 1 & 4).** Both legacy models were audited. `ElectroMechanics_Q.slx` was corrected and saved as `models/modified/ElectroMechanics_Q_modified.slx`; `HoverLock.slx` was retired as an unreliable baseline and replaced by a clean `Quadrotor_6DoF.slx` built around the Aerospace Blockset `6DOF (Euler Angles)` plant, a derived 4×4 allocator and a baseline PD controller.
-2. **Propulsion characterisation (Steps 2 & 3).** An 8-point steady operating sweep (1999.3–8996.08 RPM) was extracted from the Simscape model and independently verified against analytical momentum theory. Thrust error ≤ 0.007 %, torque error ≤ 0.003 %, shaft-power error ≤ 0.003 %; `P_elec > P_shaft` at all 8 points.
-3. **Flight dynamics and performance (Steps 5 & 6).** Five mandatory 6-DoF verification tests were executed. A cubic electrical power fit (`R² = 0.999935`, RMSE `0.8381 W`) supported payload, sensitivity and 4-phase mission-energy studies: 47.72 Wh mission energy, coulomb-counted final SoC 34.15 %.
-4. **PX4 cross-simulation (Step 7).** A logged +10° roll step from PX4 SITL (Gazebo `gz_x500`) was replayed through the 6-DoF plant. Roll cross-simulator RMSE was **0.629°**, with PX4 rise time 0.33 s versus Simulink 0.43 s.
-
-### Traceability matrix (resume claims → evidence)
-
-| Claim | Evidence in this repository |
-|---|---|
-| Audit, refinement, control allocation | `configuration/parameter_register_and_audit.csv`, `configuration/Quadrotor_Step4_Architecture_Decision_Note.md`, `models/original/`, `models/modified/`, `models/new_build/Quadrotor_6DoF.slx` |
-| Propulsion characterisation | `propulsion_analysis/operating_point_sweep.csv`, `propulsion_analysis/verification_calculations.py`, 5 verification plots |
-| Flight dynamics, payload, mission | `flight_dynamics_6dof/`, `mission_analysis/*.csv`, 5 mission plots |
-| PX4 cross-simulation | `px4_comparison/ulog/`, `px4_comparison/scripts/`, `px4_comparison/comparison_results/` |
+This paper presents a modular verification framework for a 2.00 kg quadrotor unmanned aerial vehicle, developed to replace two legacy Simulink models whose parameter and structural defects precluded reliable flight-dynamics prediction. The methodology couples a corrected Simscape propulsion model, an independently derived analytical verification protocol, a clean six-degree-of-freedom rigid-body plant, system-level mission analysis, and a simulation-to-simulation cross-comparison against PX4 Software-In-The-Loop telemetry. An eight-point steady operating sweep was verified against momentum theory with maximum thrust, torque, and shaft-power errors of 0.0073 %, 0.0031 %, and 0.0032 %. The fitted single-rotor electrical model yields 256.1 W total hover power at the 4.905 N per-rotor trim condition. A four-phase mission of 670 s consumes 47.72 Wh and finishes at 34.15 % state of charge, above the 20 % reserve. Replaying a matched 10° roll step through the six-degree-of-freedom plant gives a cross-simulator attitude RMSE of 0.629°, with PX4 rising in 0.33 s against 0.43 s for the plant. The results demonstrate that transparent first-principles modelling reproduces the closed-loop behaviour of a representative autopilot simulation while exposing controller and actuation differences that must be resolved before physical validation.
 
 ---
 
-## 2. Vehicle Configuration & Legacy Model Audit (Step 1)
+## Nomenclature
 
-### 2.1 Frozen configuration and source classifications
+| Symbol | Description | SI unit |
+|---|---|---|
+| $\rho$ | Air density | kg·m$^{-3}$ |
+| $D$ | Propeller diameter | m |
+| $n$ | Rotational speed, RPM/60 | rev·s$^{-1}$ |
+| $\omega$ | Rotor angular speed | rad·s$^{-1}$ |
+| $T_i$, $Q_i$ | Single-rotor thrust, reaction torque | N, N·m |
+| $C_T$, $C_Q$ | Thrust and torque coefficients | — |
+| $k_f$, $k_m$ | Lumped rotor constants | N·s²·rad$^{-2}$, N·m·s²·rad$^{-2}$ |
+| $m$, $g$ | Vehicle mass, gravitational acceleration | kg, m·s$^{-2}$ |
+| $l$ | Centre-to-rotor arm length | m |
+| $J$ | Inertia tensor | kg·m² |
+| $\mathbf{R}_{be}$ | Body-to-earth direction cosine matrix | — |
+| $\phi,\theta,\psi$ | Roll, pitch, yaw angles | rad |
+| $p,q,r$ | Body angular rates | rad·s$^{-1}$ |
+| $U_1\ldots U_4$ | Virtual thrust and moment inputs | N, N·m |
+| $\mathbf{B}_{\text{eff}}$, $\mathbf{B}_{\text{mixer}}$ | Rotor effectiveness and inverse mixer | — |
+| $P_{\text{shaft}}$, $P_{\text{elec}}$ | Mechanical and electrical power | W |
+| $V_{\text{nom}}$, $C_{\text{bat}}$ | Nominal pack voltage, capacity | V, A·h |
+| $R_0$, $R_m$ | Pack internal and motor winding resistance | $\Omega$ |
+| $\eta$ | Efficiency | — |
+| SoC | State of charge | % |
 
-The baseline configuration is frozen in `configuration/vehicle_configuration.md` and `models/new_build/init_6dof_params.m`. Source classifications follow `configuration/parameter_register_and_audit.csv` and `configuration/component_sources.md`; every value is a design specification, a representative component specification, an analytical derivation or a tuned simulation baseline — none is claimed as hardware-validated.
+---
+
+## 1. Introduction
+
+Small unmanned aerial vehicles are increasingly designed through model-based workflows in which propulsion, airframe dynamics, and autopilot behaviour must be verified before hardware integration. Legacy models often accumulate undocumented parameter changes and opaque subsystem hierarchies, so their predictions cannot be traced to physical assumptions. The present work addresses this problem by replacing two such models with a transparent, modular verification chain whose every constant is derived from a frozen configuration and whose every result is reproducible from generated data.
+
+Two legacy models motivated the effort. The first, an electro-mechanical propulsion model, contained rotor and electrical parameters representative of a heavy helicopter rather than a 2 kg quadrotor. The second, a flight-dynamics model, paired a 0.07 kg airframe with a 2.0 kg thrust profile and possessed no yaw authority. Rather than patching these foundations, the investigation built a clean replacement plant from first principles and used the legacy files only as archival audit evidence.
+
+The problem statement is therefore: establish a verifiable, end-to-end modelling chain for a 2.00 kg plus-configuration quadrotor that (i) reconciles Simscape propulsion outputs with analytical momentum theory, (ii) produces a stable six-degree-of-freedom plant with geometric control allocation, (iii) quantifies payload, sensitivity, and mission-energy margins, and (iv) compares the plant's closed-loop response with a representative autopilot simulation under an identical command.
+
+The numbered objectives are:
+
+1. Freeze a physically consistent airframe, propulsion, and battery configuration and audit both legacy models.
+2. Correct the propulsion model, execute an eight-point operating sweep, and verify it analytically.
+3. Implement a six-degree-of-freedom rigid-body plant and pass five mandatory verification tests.
+4. Characterise payload margin, parametric sensitivity, and four-phase mission energy.
+5. Compare the plant with PX4 Software-In-The-Loop telemetry under a matched attitude step, strictly as a simulation-to-simulation exercise.
+
+---
+
+## 2. System Architecture & Mathematical Formulation
+
+### 2.1 Baseline Quadrotor Configuration
+
+The configuration was frozen before any simulation work. All values are design specifications, representative component specifications, analytical derivations, or tuned simulation baselines; none is claimed as hardware-validated.
 
 | Subsystem | Parameter | Value | Source classification |
 |---|---|---|---|
-| Airframe | Baseline mass `m` | 2.00 kg | Design Specification |
-| Airframe | Arm length `l` | 0.225 m | Design Specification |
-| Airframe | Inertia `J` | diag(0.021, 0.021, 0.040) kg·m² | Design Specification |
-| Motor | Speed constant / winding resistance | 920 KV / 0.085 Ω | Representative Component Spec |
-| Propeller | Diameter / coefficients | 0.254 m / `C_T` 0.110, `C_Q` 0.0090 | Design / Representative Spec |
-| Battery | 4S LiPo, nominal voltage / capacity | 14.8 V / 5.0 Ah (74.0 Wh) | Design Specification |
-| Battery | Pack internal resistance `R_0` | 0.020 Ω | Design Specification |
-| ESC | Efficiency `η_ESC` | 0.95 | Design Specification |
-| Bridge | `kf`, `km` | 1.420705e-5, 2.952483e-7 | Analytically Derived, sweep-verified |
+| Airframe | Baseline mass $m$ | 2.00 kg | Design specification |
+| Airframe | Arm length $l$ | 0.225 m | Design specification |
+| Airframe | Inertia $J=\text{diag}(I_{xx},I_{yy},I_{zz})$ | (0.021, 0.021, 0.040) kg·m² | Design specification |
+| Airframe | Drag matrix $D_{\text{drag}}$ | $\text{diag}(0,0,0)$ | Intentional omission |
+| Motor | Speed constant, winding resistance | 920 KV, 0.085 $\Omega$ | Representative component spec |
+| Motor | Torque constant $K_t$ | 0.0104 N·m·A$^{-1}$ | Analytically derived |
+| Motor / propeller | Rotor inertias $J_m$, $J_p$ | 1.5×10$^{-5}$, 5.0×10$^{-5}$ kg·m² | Representative component spec |
+| Propeller | Diameter $D$ | 0.254 m | Design specification |
+| Propeller | $C_T$, $C_Q$ | 0.110, 0.0090 | Representative component spec |
+| Battery | Configuration, $V_{\text{nom}}$, $C_{\text{bat}}$ | 4S LiPo, 14.8 V, 5.0 A·h | Design specification |
+| Battery | Pack resistance $R_0$ | 0.020 $\Omega$ | Design specification |
+| ESC | Efficiency $\eta_{\text{ESC}}$ | 0.95 | Design specification |
+| Bridge | $k_f$, $k_m$ | 1.421×10$^{-5}$, 2.952×10$^{-7}$ | Analytically derived, sweep-verified |
 
-Analytical bridge constants (from `init_6dof_params.m`):
+The analytical bridge constants couple the propulsion formulation in revolutions per second to the flight-dynamics formulation in radians per second:
 
-```
-rho = 1.225 kg/m^3
-kf  = (CT * rho * D^4) / (4*pi^2) = 1.420705e-5 N/(rad/s)^2
-km  = (CQ * rho * D^5) / (4*pi^2) = 2.952483e-7 N*m/(rad/s)^2
-omega_hover = sqrt(m*g/(4*kf)) = 587.58 rad/s  (5611.0 RPM)
-```
+$$
+k_f=\frac{C_T\rho D^4}{4\pi^2},\qquad k_m=\frac{C_Q\rho D^5}{4\pi^2}.
+$$
 
-### 2.2 Audit of `ElectroMechanics_Q.slx`
+At the frozen baseline these give $\omega_{\text{hover}}=587.6\ \text{rad·s}^{-1}$ (5611 RPM), a maximum static thrust of 50.48 N, and a thrust-to-weight ratio of 2.573.
 
-Five physical defects were corrected in `models/modified/ElectroMechanics_Q_modified.slx`:
+### 2.2 Electro-Mechanical Propulsion Model
 
-1. **Helicopter-scale rotor:** propeller diameter `D = 1.5 m` and mass `10 kg` replaced with the 0.254 m (10-inch) UAV rotor class.
-2. **Zero winding resistance:** `R_m = 0 Ω` replaced with `0.085 Ω`, enabling `I²R` copper loss.
-3. **Contradictory torque/power limits:** saturation limits made mutually consistent.
-4. **Unphysical inertias:** `J_m = 1.5e-5 kg·m²`, `J_p = 5.0e-5 kg·m²` assigned to the rotating assembly.
-5. **Unverified signal routing:** CW/CCW assignments and four-motor electrical connections verified.
+The corrected Simscape model contains a shared 4S LiPo pack, four 920 KV brushless motors with winding resistance, four 10-inch propellers, and electronic speed controllers with fixed conversion efficiency. The analytical relations evaluated at each steady operating point are numbered below.
 
-The legacy 3.6 V single-cell battery assumption was replaced by the shared 14.8 V 4S pack with `R_0 = 0.020 Ω`, and opposing motor spin/thrust cancellation was resolved.
+$$
+n=\frac{\text{RPM}}{60}
+$$
 
-### 2.3 Audit of `HoverLock.slx` and retirement rationale
+$$
+T_{\text{an}}=C_T\rho n^2 D^4
+$$
 
-`HoverLock.slx` (preserved unmodified in `models/original/`) showed:
+$$
+Q_{\text{an}}=C_Q\rho n^2 D^5
+$$
 
-- mass `m = 0.07 kg` paired with a `19.62 N` / 2.0 kg thrust profile (≈28.6× imbalance);
-- `km = 0`, eliminating yaw reaction torque;
-- non-geometric `M1–M4` allocation blocks;
-- default, uncalibrated PID gains and opaque frame conventions.
+$$
+P_{\text{shaft,an}}=Q_{\text{an}}\,(2\pi n)
+$$
 
-| Criterion | Repairing `HoverLock.slx` (rejected) | Fresh `Quadrotor_6DoF.slx` (selected) |
-|---|---|---|
-| Architecture | Reverse-engineer opaque blocks | Transparent, owned structure |
-| Governing equations | Must be inferred | Explicit 12-state rigid-body plant |
-| Mixer | Structurally defective `M1–M4` | Derived `B_eff` / `B_mixer` |
-| Debugging | Hidden frame/sign risk | Predictable modular functions |
-| Credibility | Patch untrusted baseline | Every term verifiable |
+$$
+P_{\text{elec}}=V_{\text{term}}\,I_{\text{motor}}
+$$
 
-**Decision:** retire `HoverLock.slx`; build the replacement from first principles. Full rationale is in `configuration/Quadrotor_Step4_Architecture_Decision_Note.md`.
+The difference $P_{\text{elec}}-P_{\text{shaft}}$ is attributed to stator copper loss $I_m^2R_m$, ESC conversion loss $(1-\eta_{\text{ESC}})P_{\text{elec}}$, and mechanical friction. The same bridge constants feed the flight-dynamics plant through $T_i=k_f\omega_i^2$ and $Q_i=k_m\omega_i^2$.
 
-![6-DoF architecture](../configuration/Quadrotor_6DoF_architecture.png)
-*Figure 1 — Quadrotor 6-DoF architecture (`configuration/Quadrotor_6DoF_architecture.png`).*
+### 2.3 Six-Degree-of-Freedom Flight Dynamics and Control Allocation
+
+The plant uses the Aerospace Blockset `6DOF (Euler Angles)` rigid-body block in Metric (MKS) units, integrating the twelve-state vector. The body frame is Forward–Right–Down and the earth frame is flat North–East–Down. Gravity is applied through the body-frame transformation
+
+$$
+\mathbf{F}_{g,b}=\mathbf{R}_{be}\begin{bmatrix}0\\0\\mg\end{bmatrix}.
+$$
+
+For the plus configuration with rotor 1 front (counter-clockwise), rotor 2 left (clockwise), rotor 3 rear (counter-clockwise), and rotor 4 right (clockwise), the effectiveness matrix is
+
+$$
+\mathbf{B}_{\text{eff}}=
+\begin{bmatrix}
+k_f & k_f & k_f & k_f\\
+0 & l k_f & 0 & -l k_f\\
+l k_f & 0 & -l k_f & 0\\
+k_m & -k_m & k_m & -k_m
+\end{bmatrix},
+\qquad
+\begin{bmatrix}\omega_1^2&\omega_2^2&\omega_3^2&\omega_4^2\end{bmatrix}^T
+=\mathbf{B}_{\text{eff}}^{-1}
+\begin{bmatrix}U_1&U_2&U_3&U_4\end{bmatrix}^T .
+$$
+
+Each squared-speed command is saturated to $[0,\omega_{\max}^2]$ before the square root is taken. The baseline single-loop proportional–derivative laws are
+
+$$
+U_1=\frac{mg+K_{p,z}(z_{\text{ref}}-z)-K_{d,z}w}{\cos\phi\cos\theta},
+$$
+
+$$
+U_2=K_{p,\phi}(\phi_{\text{ref}}-\phi)-K_{d,\phi}p,\quad
+U_3=K_{p,\theta}(\theta_{\text{ref}}-\theta)-K_{d,\theta}q,\quad
+U_4=K_{p,\psi}(\psi_{\text{ref}}-\psi)-K_{d,\psi}r .
+$$
+
+Gains are $K_{p,z}=18.0$, $K_{d,z}=10.8$, $K_{p,\phi}=K_{p,\theta}=0.756$, $K_{d,\phi}=K_{d,\theta}=0.2142$, $K_{p,\psi}=0.640$, and $K_{d,\psi}=0.2880$. No handwritten integrator is used; the blockset supplies all state integration.
 
 ---
 
-## 3. Electro-Mechanical Propulsion Modeling & Analytical Verification (Steps 2 & 3)
+## 3. Verification Methodology
 
-### 3.1 Simscape propulsion architecture
+### 3.1 Legacy Model Audit and Retirement Rationale
 
-The corrected propulsion model comprises a shared 4S LiPo pack, four 920 KV BLDC motors with `R_m = 0.085 Ω`, four 10-inch propellers (`C_T = 0.110`, `C_Q = 0.0090`) and 95 % ESC efficiency. Figure 2–4 show the top-level and subsystem views preserved in `models/modified/`.
+Both legacy models were audited parameter-by-parameter. The propulsion model showed a 1.5 m, 10 kg helicopter-scale rotor, zero winding resistance, a 3.6 V single-cell battery assumption, inconsistent torque limits, and unverified clockwise/counter-clockwise routing. The flight-dynamics model combined a 0.07 kg airframe with a 19.62 N thrust profile, set $k_m=0$, used non-geometric mixing blocks, and carried default controller gains. Because repairing the latter would have required reverse-engineering opaque frame conventions, it was preserved as evidence and retired in favour of a fresh implementation.
 
-![ElectroMechanics top](../models/modified/ElectroMechanics_top.png)
-*Figure 2 — ElectroMechanics top-level model (`ElectroMechanics_top.png`).*
+### 3.2 Propulsion Sweep and Analytical Verification Protocol
 
-![ElectroMechanics subsystem](../models/modified/ElectroMechanics_sub.png)
-*Figure 3 — Electrical/mechanical subsystem view (`ElectroMechanics_sub.png`).*
+Eight steady operating points from 1999 to 8996 RPM were extracted from the corrected propulsion model. At each point, simulated thrust, torque, shaft power, current, and terminal voltage were compared with the analytical relations of Section 2.2. Percentage errors were computed point-wise, the lumped constants were recomputed from first principles and checked against the initialization script, and an assertion required electrical power to exceed shaft power at every point. Five 300-DPI figures were generated for visual inspection.
 
-![Motor-prop subsystem](../models/modified/ElectroMechanics_motor_prop_sub.png)
-*Figure 4 — Motor/propeller subsystem view (`ElectroMechanics_motor_prop_sub.png`).*
+### 3.3 Six-Degree-of-Freedom Five-Test Verification Matrix
 
-### 3.2 Eight-point operating sweep and analytical verification
+| Test | Condition | Quantity verified |
+|---|---|---|
+| 1 | Open-loop equal thrust, $m=2.00$ kg | Constant 10.0 m altitude, zero attitude acceleration |
+| 2 | Separate +0.01 N·m roll and pitch pulses | Correct axis response, negligible cross-coupling |
+| 3 | +0.02 N·m yaw reaction-torque pulse | Yaw acceleration and angle with flat altitude |
+| 4 | Masses 2.0, 2.5, 3.0 kg | Hover thrust, speed, thrust margin, and TWR scaling |
+| 5 | Closed-loop 10° roll and pitch step | Convergent PD response with bounded rotor speeds |
 
-The simlog-extracted sweep `propulsion_analysis/operating_point_sweep.csv` contains eight steady points. The verification equations are:
+### 3.4 Mission-Energy and Parametric Sensitivity Framework
 
-```
-n = RPM/60                       [rev/s]
-T_an  = CT * rho * n^2 * D^4     [N]
-Q_an  = CQ * rho * n^2 * D^5     [N*m]
-P_shaft_an = Q_an * (2*pi*n)     [W]
-P_elec = V_term * I_motor        [W]
-```
+A cubic polynomial was fitted to single-rotor electrical power versus thrust and compared with a momentum-theory-motivated form; the strictly monotonic fit with the lower root-mean-square error was retained. Payload and thrust margins were evaluated for three masses and a finer 1.5–3.5 kg sweep. One-at-a-time ±10 % perturbations of diameter and thrust coefficient were applied to the 2.00 kg baseline. Mission energy was integrated over the blueprint's four phases using coulomb counting for state of charge, and battery capacities of 4.0, 5.0, and 6.0 A·h were evaluated both at fixed mass and with a 0.10 kg per A·h mass penalty.
 
-| RPM | n (rev/s) | ω (rad/s) | Thrust (N) | Torque (N·m) | Shaft P (W) | Pack I (A) | Motor I (A) | V_term (V) | Motor P (W) | SoC (%) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1999.30 | 33.3216 | 209.366 | 0.6228 | 0.012942 | 2.7097 | 0.7472 | 0.1868 | 14.7851 | 2.7619 | 99.983 |
-| 2998.52 | 49.9753 | 314.004 | 1.4008 | 0.029112 | 9.1412 | 2.5545 | 0.6386 | 14.7489 | 9.4192 | 99.915 |
-| 3998.22 | 66.6370 | 418.692 | 2.4905 | 0.051759 | 21.6712 | 6.1700 | 1.5425 | 14.6766 | 22.6387 | 99.748 |
-| 4997.86 | 83.2977 | 523.375 | 3.8916 | 0.080877 | 42.3289 | 12.3706 | 3.0927 | 14.5526 | 45.0061 | 99.411 |
-| 5997.48 | 99.9580 | 628.055 | 5.6040 | 0.116464 | 73.1459 | 22.1844 | 5.5461 | 14.3563 | 79.6216 | 98.804 |
-| 6997.08 | 116.6180 | 732.733 | 7.6277 | 0.158522 | 116.1540 | 37.1772 | 9.2943 | 14.0565 | 130.6448 | 97.785 |
-| 7996.67 | 133.2778 | 837.409 | 9.9628 | 0.207049 | 173.3848 | 60.2840 | 15.0710 | 13.5943 | 204.8801 | 96.130 |
-| 8996.08 | 149.9347 | 942.068 | 12.6086 | 0.262036 | 246.8560 | 99.6936 | 24.9234 | 12.8061 | 319.1722 | 93.395 |
+### 3.5 PX4 Cross-Simulation Protocol
 
-Analytical verification (`propulsion_verification_summary.csv`): maximum absolute thrust error **0.007 %**, torque error **0.003 %**, shaft-power error **0.003 %**. Efficiency `η_total = P_shaft / P_elec` ranges from `0.9811` at 1999 RPM down to `0.7734` at 8996 RPM, and `P_elec > P_shaft` holds at all eight points; the difference is `I²R` copper loss, ESC switching/conduction loss and mechanical friction. The lumped constants derived from `C_T`, `C_Q` agree with `init_6dof_params.m` to ~1e-13 relative.
+A +10° roll step was flown in PX4 Software-In-The-Loop with the standard `gz_x500` vehicle. Telemetry was extracted from the logged ULog file, converted from quaternion to Z–Y–X Euler angles, windowed from one second before the step to five seconds after the hold, and resampled at 100 Hz. The setpoint sequence was replayed through the six-degree-of-freedom plant with the test selector set to seven. Both systems operate in Forward–Right–Down body and North–East–Down local frames, so no legacy North-West-Up sign inversion was applied; the only normalization was to express yaw relative to the window-start heading. The exercise is strictly a simulation-to-simulation cross-comparison and provides no experimental flight validation.
 
-![Thrust vs RPM](../propulsion_analysis/plots/thrust_vs_rpm.png)
-*Figure 5 — Simulated versus analytical single-rotor thrust (`thrust_vs_rpm.png`).*
+---
 
-![Torque vs RPM](../propulsion_analysis/plots/torque_vs_rpm.png)
-*Figure 6 — Simulated versus analytical single-rotor torque (`torque_vs_rpm.png`).*
+## 4. Results
 
-![Power vs thrust](../propulsion_analysis/plots/power_vs_thrust.png)
-*Figure 7 — Single-rotor shaft and electrical power versus thrust, with hover marker (`power_vs_thrust.png`).*
+### 4.1 Propulsion Characterisation
+
+The eight-point sweep spans 0.623 N to 12.609 N single-rotor thrust. Terminal voltage falls from 14.79 V to 12.81 V as pack current rises to 99.69 A, directly demonstrating load-dependent voltage sag. Maximum absolute errors relative to analytical momentum theory are 0.0073 % in thrust, 0.0031 % in torque, and 0.0032 % in shaft power. Overall efficiency decreases from 98.1 % at the lowest load to 77.3 % at the highest, and electrical power exceeds shaft power at every point.
+
+| RPM | $n$ (rev/s) | $\omega$ (rad/s) | $T$ (N) | $Q$ (N·m) | $P_{\text{shaft}}$ (W) | $I_{\text{pack}}$ (A) | $V_{\text{term}}$ (V) | $P_{\text{elec}}$ (W) |
+|---|---|---|---|---|---|---|---|---|
+| 1999 | 33.32 | 209.4 | 0.623 | 0.01294 | 2.710 | 0.747 | 14.79 | 2.762 |
+| 2999 | 49.98 | 314.0 | 1.401 | 0.02911 | 9.141 | 2.555 | 14.75 | 9.419 |
+| 3998 | 66.64 | 418.7 | 2.491 | 0.05176 | 21.67 | 6.170 | 14.68 | 22.64 |
+| 4998 | 83.30 | 523.4 | 3.892 | 0.08088 | 42.33 | 12.37 | 14.55 | 45.01 |
+| 5997 | 99.96 | 628.1 | 5.604 | 0.1165 | 73.15 | 22.18 | 14.36 | 79.62 |
+| 6997 | 116.6 | 732.7 | 7.628 | 0.1585 | 116.2 | 37.18 | 14.06 | 130.6 |
+| 7997 | 133.3 | 837.4 | 9.963 | 0.2070 | 173.4 | 60.28 | 13.59 | 204.9 |
+| 8996 | 149.9 | 942.1 | 12.61 | 0.2620 | 246.9 | 99.69 | 12.81 | 319.2 |
+
+![Thrust versus RPM](../propulsion_analysis/plots/thrust_vs_rpm.png)
+*Figure 1. Simulated and analytical single-rotor thrust across the operating sweep.*
+
+![Torque versus RPM](../propulsion_analysis/plots/torque_vs_rpm.png)
+*Figure 2. Simulated and analytical single-rotor reaction torque across the operating sweep.*
+
+![Power versus thrust](../propulsion_analysis/plots/power_vs_thrust.png)
+*Figure 3. Single-rotor shaft and electrical power against thrust; the marker denotes the 4.905 N hover trim at 64.03 W.*
 
 ![Battery behaviour](../propulsion_analysis/plots/battery_behaviour.png)
-*Figure 8 — Terminal-voltage sag and pack current versus RPM (`battery_behaviour.png`). Terminal voltage falls from 14.7851 V to 12.8061 V as pack current rises to 99.6936 A, the expected 4S LiPo sag under load.*
+*Figure 4. Terminal-voltage sag and pack current against rotor speed.*
 
-![Combined verification](../propulsion_analysis/plots/propulsion_verification_plots.png)
-*Figure 9 — Combined 2×2 propulsion verification summary (`propulsion_verification_plots.png`).*
-
----
-
-## 4. 6-DoF Flight Dynamics Architecture & Verification Tests (Steps 4 & 5)
-
-### 4.1 Plant, frames and equations
-
-The plant is the Aerospace Blockset `6DOF (Euler Angles)` block in Metric (MKS) units, integrating `[x, y, z, u, v, w, φ, θ, ψ, p, q, r]`. Body frame is FRD (+X forward, +Y right, +Z down); earth frame is flat NED. Gravity enters the body equations through `F_g,b = DCM_be · [0, 0, m·g]ᵀ`. No handwritten integrator is used; `D_drag = diag(0,0,0)` is an intentional omission.
-
-```
-B_eff = [ kf      kf      kf      kf
-          0      l*kf     0     -l*kf
-          l*kf     0    -l*kf     0
-          km     -km      km    -km ]
-
-omega_i_cmd^2 = B_mixer * [U1, U2, U3, U4]^T ,  B_mixer = inv(B_eff)
-omega_i = sqrt( max(0, min(omega_max^2, omega_i_cmd^2)) )
-```
-
-Rotors: 1 Front CCW `[+l,0,0]`, 2 Left CW `[0,−l,0]`, 3 Rear CCW `[−l,0,0]`, 4 Right CW `[0,+l,0]`. Baseline PD gains (`init_6dof_params.m`): `Kp_z 18.0 / Kd_z 10.8`, `Kp_phi 0.756 / Kd_phi 0.2142`, `Kp_theta 0.756 / Kd_theta 0.2142`, `Kp_psi 0.640 / Kd_psi 0.2880`.
-
-### 4.2 Five mandatory verification tests
-
-**Test 1 — Hover equilibrium.** Open-loop equal thrust at `m = 2.00 kg`, `ω_i = 587.58 rad/s`, altitude 10.0 m held; no attitude acceleration.
+### 4.2 Six-Degree-of-Freedom Flight Dynamics Verification
 
 ![Test 1](../flight_dynamics_6dof/test1_hover_equilibrium/test1_hover_equilibrium.png)
-*Figure 10 — Test 1 hover equilibrium (`test1_hover_equilibrium.png`).*
-
-**Test 2a/2b — Roll and pitch pulses.** Separate +0.01 N·m pulses produce the corresponding body rate and angle with zero cross-axis response.
+*Figure 5. Test 1, open-loop hover equilibrium at 587.6 rad·s$^{-1}$ and 10.0 m.*
 
 ![Test 2](../flight_dynamics_6dof/test2_roll_pitch_response/test2_roll_pitch_response.png)
-*Figure 11 — Test 2 roll/pitch pulse response (`test2_roll_pitch_response.png`).*
-
-**Test 3 — Yaw reaction-torque pulse.** +0.02 N·m CCW/CW rotor split produces a pure yaw rate and angle progression with flat altitude (possible because `km = 2.952483e-7 ≠ 0`).
+*Figure 6. Test 2, separate roll and pitch pulses of +0.01 N·m.*
 
 ![Test 3](../flight_dynamics_6dof/test3_yaw_response/test3_yaw_response.png)
-*Figure 12 — Test 3 yaw response (`test3_yaw_response.png`).*
+*Figure 7. Test 3, pure yaw reaction-torque response to a +0.02 N·m pulse.*
 
-**Test 4 — Payload equilibrium.** Three cases from `test4_payload_summary.csv`:
-
-| Mass (kg) | Hover thrust (N) | Hover ω (rad/s) | Hover RPM | TWR | Thrust margin (N) |
+| Mass (kg) | Hover thrust (N) | Hover speed (rad/s) | Hover speed (RPM) | TWR | Margin (N) |
 |---|---|---|---|---|---|
-| 2.0 | 19.62 | 587.580742984196 | 5610.9827826926 | 2.57280663300917 | 30.85846613964 |
-| 2.5 | 24.525 | 656.935241791248 | 6273.26946134079 | 2.05824530640734 | 25.95346613964 |
-| 3.0 | 29.43 | 719.636501498354 | 6872.02238656927 | 1.71520442200612 | 21.04846613964 |
+| 2.0 | 19.62 | 587.6 | 5611 | 2.573 | 30.86 |
+| 2.5 | 24.53 | 656.9 | 6273 | 2.058 | 25.95 |
+| 3.0 | 29.43 | 719.6 | 6872 | 1.715 | 21.05 |
+
+*Table 1. Test 4 payload equilibrium for the three mandatory mass cases.*
 
 ![Test 4](../flight_dynamics_6dof/test4_payload_equilibrium/test4_payload_equilibrium.png)
-*Figure 13 — Test 4 payload equilibrium (`test4_payload_equilibrium.png`).*
-
-**Test 5 — Closed-loop PD step.** A 10° roll and pitch step is tracked without divergence. Tilt-compensated total thrust rises to ≈20.238 N, corresponding to an equivalent rotor speed of 596.7 rad/s (peak individual rotor speed 604.885 rad/s). The 3D Euler kinematics produce a small yaw transient peaking at **0.5587°**, immediately corrected by the PD yaw loop.
+*Figure 8. Test 4, altitude and rotor-speed response for the three payload cases.*
 
 ![Test 5](../flight_dynamics_6dof/test5_pd_control_response/test5_pd_control_response.png)
-*Figure 14 — Test 5 closed-loop PD response (`test5_pd_control_response.png`).*
+*Figure 9. Test 5, closed-loop proportional–derivative tracking of a 10° step. Tilt compensation raises total thrust to 20.24 N, equivalent to 596.7 rad·s$^{-1}$; Euler kinematics produce a 0.559° yaw transient that the loop corrects.*
 
----
+### 4.3 Payload Margin, Sensitivity, and Mission Energy
 
-## 5. System-Level Payload, Sensitivity & Mission Energy Analysis (Step 6)
-
-### 5.1 Electrical power model fit
-
-Single-rotor electrical power and pack current were fitted over the eight sweep points (0.6228–12.6086 N). A degree-3 polynomial was selected as the strictly monotonic fit with the lowest RMSE: **R² = 0.999935, RMSE = 0.8381 W** (pack-current fit R² = 0.999865, RMSE = 0.3765 A). Fitted hover power at `T₁ = 4.905 N` is **64.026 W/rotor = 256.10 W total**, bracketed by the 5000 RPM (45.01 W) and 6000 RPM (79.62 W) sweep points.
+The selected electrical fit was cubic, with $R^2=0.999935$ and RMSE 0.838 W. Fitted hover power is 64.03 W per rotor, or 256.1 W total, positioned between the 5000 and 6000 RPM sweep points.
 
 ![Power fit](../mission_analysis/plots/power_thrust_fit.png)
-*Figure 15 — Electrical power versus thrust fit validation (`power_thrust_fit.png`).*
+*Figure 10. Electrical power against thrust with the selected fit and hover operating point.*
 
-### 5.2 Payload and thrust-margin study
+| Mass (kg) | Added payload (kg) | Total thrust (N) | Per rotor (N) | RPM | TWR | Margin (N) | Electrical power (W) | Endurance (min) |
+|---|---|---|---|---|---|---|---|---|
+| 2.0 | 0.0 | 19.62 | 4.905 | 5611 | 2.573 | 30.86 | 256.1 | 13.87 |
+| 2.5 | 0.5 | 24.53 | 6.131 | 6273 | 2.058 | 25.95 | 363.1 | 9.783 |
+| 3.0 | 1.0 | 29.43 | 7.358 | 6872 | 1.715 | 21.05 | 488.8 | 7.267 |
 
-| Mass (kg) | Payload added (kg) | Hover thrust total (N) | Per rotor (N) | Hover RPM | Max thrust (N) | TWR | Margin (N) | Shaft P (W) | Elec P (W) | Pack I (A) | Usable Wh | Endurance (min) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2.0 | 0.0 | 19.62 | 4.905 | 5610.9828 | 50.4787 | 2.5728 | 30.8587 | 239.5797 | 256.1023 | 17.6669 | 59.2 | 13.8695 |
-| 2.5 | 0.5 | 24.525 | 6.1313 | 6273.2695 | 50.4787 | 2.0583 | 25.9537 | 334.8229 | 363.0697 | 25.2327 | 59.2 | 9.7832 |
-| 3.0 | 1.0 | 29.43 | 7.3575 | 6872.0224 | 50.4787 | 1.7152 | 21.0487 | 440.1361 | 488.7651 | 34.4701 | 59.2 | 7.2673 |
-
-Maximum deviation of hover RPM and TWR from `test4_payload_summary.csv` is **0.0005 %**, well within the 0.5 % acceptance threshold.
+*Table 2. Payload and thrust-margin study; hover speed and TWR agree with the flight-dynamics test to within 0.0005 %.*
 
 ![Payload margin](../mission_analysis/plots/payload_thrust_margin.png)
-*Figure 16 — TWR, thrust margin, hover power and endurance versus mass (`payload_thrust_margin.png`).*
+*Figure 11. Thrust-to-weight ratio, thrust margin, hover power, and endurance against vehicle mass.*
 
-### 5.3 Parameter sensitivity (±10 %)
+| Case | $D$ (m) | $C_T$ | Hover RPM | Max thrust (N) | TWR | Hover power (W) |
+|---|---|---|---|---|---|---|
+| Baseline | 0.254 | 0.110 | 5611 | 50.48 | 2.573 | 256.1 |
+| $D-10\%$ | 0.229 | 0.110 | 6927 | 33.12 | 1.688 | 284.6 |
+| $D+10\%$ | 0.279 | 0.110 | 4637 | 73.91 | 3.767 | 232.8 |
+| $C_T-10\%$ | 0.254 | 0.099 | 5914 | 45.43 | 2.316 | 300.0 |
+| $C_T+10\%$ | 0.254 | 0.121 | 5350 | 55.53 | 2.830 | 222.0 |
 
-Because `kf ∝ C_T D⁴` and `km ∝ C_Q D⁵`, a larger rotor lowers disk loading: hover speed scales approximately `D⁻¹` and hover power falls, while the `ω_max` ceiling yields higher static thrust and TWR.
-
-| Case | D (m) | C_T | Hover RPM | Max thrust (N) | TWR | Hover power (W) | ΔRPM (%) | Δthrust (%) | ΔTWR (%) | Δpower (%) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Baseline | 0.2540 | 0.110 | 5610.98 | 50.4787 | 2.5728 | 256.1023 | 0.00 | 0.00 | 0.00 | 0.00 |
-| D −10 % | 0.2286 | 0.110 | 6927.14 | 33.1191 | 1.6880 | 284.5581 | +23.46 | −34.39 | −34.39 | +11.11 |
-| D +10 % | 0.2794 | 0.110 | 4637.18 | 73.9059 | 3.7669 | 232.8203 | −17.36 | +46.41 | +46.41 | −9.09 |
-| C_T −10 % | 0.2540 | 0.099 | 5914.50 | 45.4308 | 2.3155 | 299.9506 | +5.41 | −10.00 | −10.00 | +17.12 |
-| C_T +10 % | 0.2540 | 0.121 | 5349.86 | 55.5266 | 2.8301 | 221.9854 | −4.65 | +10.00 | +10.00 | −13.32 |
-
-C_T scales `kf` only (not `km`), so thrust/RPM/TWR move directly while electrical power follows through the fitted hover efficiency `eta_hover = 0.9355`.
+*Table 3. One-at-a-time ±10 % parameter sensitivity.*
 
 ![Sensitivity](../mission_analysis/plots/parameter_sensitivity.png)
-*Figure 17 — One-at-a-time ±10 % sensitivity of D and C_T (`parameter_sensitivity.png`).*
+*Figure 12. Percentage change in hover speed, maximum thrust, thrust-to-weight ratio, and hover power.*
 
-### 5.4 Four-phase mission energy
+| Phase | Duration (s) | Multiplier | Total thrust (N) | Power (W) | Pack current (A) | Phase energy (Wh) | Cumulative (Wh) | SoC (%) |
+|---|---|---|---|---|---|---|---|---|
+| Take-off | 5 | 1.15 | 22.56 | 318.1 | 22.02 | 0.442 | 0.442 | 99.39 |
+| Climb | 30 | 1.08 | 21.19 | 288.4 | 19.92 | 2.403 | 2.845 | 96.07 |
+| Hover | 600 | 1.00 | 19.62 | 256.1 | 17.67 | 42.68 | 45.53 | 37.18 |
+| Descent | 35 | 0.92 | 18.05 | 225.6 | 15.55 | 2.193 | 47.72 | 34.15 |
+| Total | 670 | — | — | — | — | 47.72 | 47.72 | 34.15 |
 
-The blueprint profile was used exactly (not the optional fallback): take-off 5 s at 1.15 mg, climb 30 s at 1.08 mg, hover 600 s at 1.00 mg, descent/landing 35 s at 0.92 mg, total 670 s.
-
-| Phase | Duration (s) | Multiplier | Total thrust (N) | Per rotor (N) | RPM | Elec power (W) | Pack I (A) | Phase Wh | Phase kJ | Cumulative Wh | Cumulative Ah | End SoC (%) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Take-off | 5.0 | 1.15 | 22.5630 | 5.64075 | 6017.1087 | 318.1209 | 22.0213 | 0.4418 | 1.5906 | 0.4418 | 0.0306 | 99.3883 |
-| Climb | 30.0 | 1.08 | 21.1896 | 5.2974 | 5831.1044 | 288.3874 | 19.9230 | 2.4032 | 8.6516 | 2.8451 | 0.1966 | 96.0678 |
-| Hover | 600.0 | 1.00 | 19.6200 | 4.9050 | 5610.9828 | 256.1023 | 17.6669 | 42.6837 | 153.6614 | 45.5288 | 3.1411 | 37.1783 |
-| Descent/Landing | 35.0 | 0.92 | 18.0504 | 4.5126 | 5381.8656 | 225.5785 | 15.5535 | 2.1931 | 7.8952 | 47.7219 | 3.2923 | 34.1540 |
-| **TOTAL** | **670.0** | — | — | — | — | — | — | **47.7219** | **171.7988** | 47.7219 | 3.2923 | **34.1540** |
-
-End SoC 34.15 % clears the 20 % LiPo reserve. Coulomb counting (Ah drawn) is used throughout so `mission_energy.csv` and `battery_sensitivity.csv` agree exactly; it sits slightly below the simple nominal-voltage energy ratio because terminal voltage sags under load (Section 3, Figure 8), so more ampere-hours are drawn per watt-hour than `E/V_nom` suggests.
+*Table 4. Four-phase mission profile; total energy is 171.8 kJ and the final state of charge clears the 20 % reserve.*
 
 ![Mission energy](../mission_analysis/plots/mission_energy_profile.png)
-*Figure 18 — Four-phase thrust, power, cumulative energy and SoC (`mission_energy_profile.png`).*
+*Figure 13. Piecewise-constant thrust and power with linearly accumulating energy and linearly decreasing state of charge.*
 
-### 5.5 Battery capacity sensitivity
+| Case | Capacity (A·h) | Mass (kg) | Endurance (min) | Mission energy (Wh) | Post-mission SoC (%) | Reserve met |
+|---|---|---|---|---|---|---|
+| Fixed mass | 4.0 | 2.00 | 11.10 | 47.72 | 17.69 | No |
+| Mass adjusted | 4.0 | 1.90 | 12.00 | 44.13 | 23.92 | Yes |
+| Fixed mass | 5.0 | 2.00 | 13.87 | 47.72 | 34.15 | Yes |
+| Mass adjusted | 5.0 | 2.00 | 13.87 | 47.72 | 34.15 | Yes |
+| Fixed mass | 6.0 | 2.00 | 16.64 | 47.72 | 45.13 | Yes |
+| Mass adjusted | 6.0 | 2.10 | 15.44 | 51.44 | 40.80 | Yes |
 
-| Case | Capacity (Ah) | Mass (kg) | Nominal Wh | Usable Wh (80 %) | Hover power (W) | Hover endurance (min) | Mission Wh | Post SoC (%) | Reserve satisfied |
-|---|---|---|---|---|---|---|---|---|---|
-| Fixed-mass | 4.0 | 2.0 | 59.2 | 47.36 | 256.1023 | 11.0956 | 47.7219 | 17.6925 | False |
-| Mass-adjusted | 4.0 | 1.9 | 59.2 | 47.36 | 236.8217 | 11.9989 | 44.1281 | 23.9246 | True |
-| Fixed-mass | 5.0 | 2.0 | 74.0 | 59.20 | 256.1023 | 13.8695 | 47.7219 | 34.1540 | True |
-| Mass-adjusted | 5.0 | 2.0 | 74.0 | 59.20 | 256.1023 | 13.8695 | 47.7219 | 34.1540 | True |
-| Fixed-mass | 6.0 | 2.0 | 88.8 | 71.04 | 256.1023 | 16.6434 | 47.7219 | 45.1283 | True |
-| Mass-adjusted | 6.0 | 2.1 | 88.8 | 71.04 | 276.0709 | 15.4395 | 51.4441 | 40.8000 | True |
-
-Fixed-mass endurance rises 11.10 → 13.87 → 16.64 min; with the realistic +0.10 kg/Ah mass penalty the gains diminish to 12.00 → 13.87 → 15.44 min. At 4 Ah the fixed-mass case falls below the 20 % reserve while the lighter mass-adjusted configuration stays above it.
+*Table 5. Battery-capacity sensitivity with and without the 0.10 kg per A·h mass penalty.*
 
 ![Battery sensitivity](../mission_analysis/plots/battery_capacity_sensitivity.png)
-*Figure 19 — Hover endurance and post-mission SoC versus capacity (`battery_capacity_sensitivity.png`).*
+*Figure 14. Hover endurance and post-mission state of charge versus pack capacity.*
 
----
+### 4.4 PX4 SITL versus Simulink Six-Degree-of-Freedom Cross-Simulation
 
-## 6. PX4 SITL vs. 6-DoF Cross-Simulation Comparison (Step 7)
+The matched maneuver was a +10° roll step held for 8.06 s within a 14.01 s aligned window. The following tables separate steady-state tracking from transient response so that no column is clipped.
 
-### 6.1 Scope and matched maneuver
+| Axis | PX4 RMSE vs setpoint (°) | Plant RMSE vs setpoint (°) | Cross-simulator RMSE (°) | PX4 steady error (°) | Plant steady error (°) |
+|---|---|---|---|---|---|
+| Roll | 1.968 | 1.539 | 0.629 | 0.074 | 0.217 |
+| Pitch | 0.322 | `$\approx$`{=latex}0 | 0.322 | 0.594 | `$\approx$`{=latex}0 |
+| Yaw | 1.849 | `$\approx$`{=latex}0 | 1.849 | −3.045 | `$\approx$`{=latex}0 |
 
-This section reports a **simulation-to-simulation cross-comparison**, not experimental flight validation. A +10° roll step was flown in PX4 SITL (Gazebo `gz_x500`, manifest `attitude_step_run.json`), held 8.0 s, and extracted from `09_52_14.ulg` into a 1402-sample, 100 Hz, 14.01 s aligned window. The step onset in aligned time is t = 0.980 s and the hold ends at 9.040 s (8.06 s hold).
+*Table 6. Tracking and steady-state error metrics.*
 
-Both systems use FRD body / NED local frames, so **no NED-to-NWU sign flip** was applied. The absolute PX4 NED heading (~96°) was normalised relative to the window-start value so the plant could start at ψ = 0.
+| Axis | PX4 overshoot (%) | Plant overshoot (%) | PX4 rise (s) | Plant rise (s) | PX4 settle 2 % (s) | Plant settle 2 % (s) | PX4 peak rate (rad/s) | Plant peak rate (rad/s) |
+|---|---|---|---|---|---|---|---|---|
+| Roll | 10.57 | 0.627 | 0.33 | 0.43 | 5.33 | 0.69 | 0.536 | 0.426 |
+| Pitch | — | — | — | — | — | — | 0.018 | `$\approx$`{=latex}0 |
+| Yaw | — | — | — | — | — | — | 0.090 | `$\approx$`{=latex}0 |
 
-### 6.2 Quantitative metrics
-
-Full table from `px4_comparison/comparison_results/px4_vs_6dof_metrics.csv`:
-
-| Axis | PX4 RMSE vs SP (°) | Sim RMSE vs SP (°) | Cross-sim RMSE (°) | PX4 overshoot (%) | Sim overshoot (%) | PX4 rise (s) | Sim rise (s) | PX4 settle 2 % (s) | Sim settle 2 % (s) | PX4 settle 5 % (s) | Sim settle 5 % (s) | PX4 SS err (°) | Sim SS err (°) | PX4 peak rate (rad/s) | Sim peak rate (rad/s) |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Roll (excited) | 1.967958 | 1.539408 | **0.629211** | 10.572997 | 0.626659 | 0.33 | 0.43 | 5.33 | 0.69 | 1.74 | 0.61 | 0.073812 | 0.216868 | 0.535598 | 0.426267 |
-| Pitch (cross) | 0.321547 | 0.0000000724 | 0.321547 | — | — | — | — | — | — | — | — | 0.593815 | 0.0000000710 | 0.017581 | 0.0000000171 |
-| Yaw (cross) | 1.848533 | 0.00000146 | 1.848533 | — | — | — | — | — | — | — | — | −3.044866 | 0.000000166 | 0.089936 | 0.000000021 |
-
-Roll cross-simulator RMSE of 0.629° indicates consistent closed-loop behaviour under the matched command. PX4 reaches the step faster (0.33 s) but overshoots more (10.57 % vs 0.63 %) and takes longer to settle to 2 % (5.33 s vs 0.69 s).
-
-### 6.3 Physical interpretation of differences
-
-- **Controller architecture:** PX4 SITL uses cascaded attitude-P / angular-rate-PID with rate limiting and feedforward; the 6-DoF plant uses a single-loop PD attitude law. The inner rate loop explains PX4's faster rise and larger overshoot/longer settling as it unwinds.
-- **Plant and actuation fidelity:** Gazebo `gz_x500` includes motor lag, ESC dynamics, aerodynamic drag and estimator noise; the Simulink plant uses static quadratic rotors, instantaneous rotor speed and `D_drag = 0`. This yields higher PX4 tracking RMSE and small nonzero cross-axis steady-state offsets.
-- **Ground-proximity caveat:** the logged PX4 altitude during the step window is only ≈0.04 m (`dist_bottom ≈ 0`), whereas the 6-DoF replay holds 10 m. Ground effect/contact and possible saturation distort the PX4 response; the altitude-hold comparison is therefore **not** like-for-like. This is transparently flagged in the extraction script and plots.
-- All figures carry the subtitle "SIMULATION-TO-SIMULATION comparison (PX4 SITL vs Simulink) — not flight-test validation".
+*Table 7. Transient step-response metrics. All values derive from simulated traces; no flight-test data are involved.*
 
 ![Attitude overlay](../px4_comparison/comparison_results/attitude_overlay_comparison.png)
-*Figure 20 — Setpoint versus PX4 SITL versus Simulink 6-DoF attitude overlay (`attitude_overlay_comparison.png`).*
+*Figure 15. Setpoint, PX4 simulation, and plant response for roll, pitch, and yaw.*
 
 ![Angular rate](../px4_comparison/comparison_results/angular_rate_comparison.png)
-*Figure 21 — Body rates p, q, r comparison (`angular_rate_comparison.png`).*
+*Figure 16. Body angular rates for the two simulated systems.*
 
 ![Tracking error](../px4_comparison/comparison_results/tracking_error_comparison.png)
-*Figure 22 — Roll tracking error and altitude hold comparison (`tracking_error_comparison.png`).*
+*Figure 17. Roll tracking error and altitude-hold comparison.*
 
 ---
 
-## 7. Limitations, Conclusions & Future Work
+## 5. Synthesis & Discussion
 
-### 7.1 Conclusions
+### 5.1 Propulsion Efficiency and Battery Accounting
 
-The seven-step workflow produced a fully traceable evidence chain: both legacy models were audited, the propulsion model was corrected and independently verified to <0.01 % error, a clean 6-DoF plant passed all five mandatory tests, system-level studies quantified payload/mission/battery trade-offs, and a matched PX4 SITL replay produced a 0.629° roll cross-simulator RMSE. Every reported number is reproduced from generated artefacts in the repository.
+Overall efficiency falls from 98.1 % at 1999 RPM to 77.3 % at 8996 RPM because stator copper loss scales with the square of motor current and the pack voltage sags under load. Terminal voltage drops from 14.79 V to 12.81 V while pack current rises to 99.69 A, so the same delivered watt-hour demand withdraws more ampere-hours than a fixed 14.8 V ratio predicts. Coulomb counting therefore yields a mission end state of charge of 34.15 %, slightly below the value implied by dividing consumed energy by nominal pack energy. This distinction is deliberate: the reported value follows charge withdrawn from the pack, not an idealised constant-voltage energy ratio.
 
-### 7.2 Limitations
+### 5.2 Disk-Loading Scaling and Battery Mass Trade-off
 
-- **Static rotor assumption:** `T_i = kf ω_i²`, `Q_i = km ω_i²` with no rotor-speed lag in the 6-DoF loop.
-- **Zero aerodynamic drag:** `D_drag = 0` by design (documented omission), so translational damping is absent.
-- **Ideal sensors/actuation:** no sensor noise, filtering or ESC dynamics in the Simulink plant.
-- **Ground-proximity log:** the PX4 step was recorded at ≈0.04 m altitude, limiting the validity of the altitude-hold comparison.
-- **Simulation-only scope:** both sides of the Step 7 comparison are simulated; no flight-test claim is made.
+Because $k_f\propto C_T D^4$ and $k_m\propto C_Q D^5$, maximum static thrust scales as $D^4$, hover speed as $D^{-2}$, and hover shaft power as $D^{-1}$. The ±10 % sweep confirms the trend: enlarging the diameter by 10 % lowers hover speed from 5611 to 4637 RPM and hover power from 256.1 to 232.8 W while raising maximum thrust from 50.48 to 73.91 N. Conversely, thrust coefficient changes thrust and speed but not reaction torque, so power changes follow through aerodynamic load alone. Battery capacity increases hover endurance from 11.10 to 16.64 minutes at fixed mass, but adding 0.10 kg per A·h reduces the gain to 12.00–15.44 minutes, quantifying diminishing returns.
 
-### 7.3 Future work
+### 5.3 Reconciliation of the Two Simulated Dynamic Systems
 
-1. Add a first-order motor/ESC lag to the rotor-speed path and repeat Step 5 and Step 7.
-2. Introduce identified aerodynamic drag coefficients and repeat the mission-energy study.
-3. Re-fly the PX4 SITL scenario with confirmed in-air altitude (>2 m) and repeat the extraction/comparison; ultimately repeat with hardware-in-the-loop or controlled flight data if physical validation is required.
+PX4 Software-In-The-Loop employs a cascaded attitude-proportional and angular-rate-PID architecture with rate limiting and feedforward; the plant uses a single-loop proportional–derivative law. The inner rate loop explains PX4's faster 0.33 s rise and larger 10.57 % overshoot, whereas the plant rises in 0.43 s with 0.63 % overshoot and settles to 2 % in 0.69 s against 5.33 s. Gazebo adds motor lag, aerodynamic drag, and estimator noise, while the plant uses static quadratic rotors, instantaneous speed response, and zero drag. The 0.629° cross-simulator roll RMSE shows that these structural differences do not prevent close agreement under a matched command.
 
-### 7.4 Evidence repository checklist
+### 5.4 Limitations
 
-- [x] Model audit and `HoverLock` retirement
-- [x] Physical configuration and parameter register
-- [x] 8-point propulsion sweep and analytical verification
-- [x] Clean 6-DoF model and five verification tests
-- [x] Payload/thrust-margin study
-- [x] Mission energy and battery sensitivity studies
-- [x] PX4 SITL cross-simulation comparison
-- [ ] Traceable final report (this document) — **complete upon compilation of `final_report.pdf` / `final_report.docx`**
+The plant assumes static rotor thrust and torque, omits aerodynamic drag, and uses ideal sensors and actuation. The PX4 log used for comparison records the step at approximately 0.04 m above ground with near-zero distance-to-ground, so ground effect and possible saturation make the altitude-hold comparison non-equivalent. All results remain simulation-based; no experimental flight validation is claimed or implied.
+
+---
+
+## 6. Conclusions & Future Work
+
+The five objectives of Section 1 are addressed as follows. A frozen, source-classified configuration was established and both legacy models were audited (Objective 1). The corrected propulsion model passed eight-point analytical verification with sub-0.01 % errors (Objective 2). The six-degree-of-freedom plant passed all five verification tests, including convergent closed-loop tracking of a 10° step (Objective 3). Payload, sensitivity, and four-phase mission studies quantified a 2.573 baseline thrust-to-weight ratio, 47.72 Wh mission energy, and 34.15 % final state of charge (Objective 4). Finally, the matched PX4 replay produced a 0.629° cross-simulator roll RMSE and transparently documented controller and actuation differences (Objective 5).
+
+Future work should add first-order motor and electronic-speed-controller dynamics to the plant, introduce identified aerodynamic drag coefficients, and repeat the flight-dynamics and mission studies. A PX4 Software-In-The-Loop scenario with confirmed in-air altitude above 2 m is required before treating the cross-comparison as representative of flight conditions; hardware-in-the-loop or controlled flight testing would be needed for physical validation.
+
+---
+
+## References
+
+1. MathWorks, *Aerospace Blockset User's Guide*, 6DOF (Euler Angles) block documentation.
+2. MathWorks, *Simscape User's Guide*, electrical and mechanical domain modelling documentation.
+3. PX4 Autopilot Developer Documentation, *ULog File Format* and *Attitude Setpoint* topics.
+4. Gazebo Simulator Documentation, *Sensors and Model Plugins*.
+5. Bouabdallah, A., Noth, A., and Siegwart, R., “PID vs LQ Control Techniques Applied to an Indoor Micro Quadrotor,” *IEEE/RSJ International Conference on Intelligent Robots and Systems*, 2004.
+6. Stevens, B. L. and Lewis, F. L., *Aircraft Control and Simulation*, 2nd ed., Wiley, 2003.
+7. Corke, P., *Robotics, Vision and Control*, 2nd ed., Springer, 2017.
+
+---
+
+## Appendix A. Archival Traceability and Legacy Defect Register
+
+This appendix records the repository locations of all evidence artefacts and the detailed legacy audit. File paths appear here only.
+
+### A.1 Evidence locations
+
+- Configuration: configuration/vehicle_configuration.md, configuration/parameter_register_and_audit.csv, configuration/component_sources.md, Step 4 architecture decision note.
+- Models: models/original/, models/modified/, models/new_build/.
+- Propulsion: the operating-point sweep, verification script and summary, and propulsion plots under propulsion_analysis/.
+- Flight dynamics: flight_dynamics_6dof/test1_hover_equilibrium/ through test5_pd_control_response/.
+- Mission analysis: mission_analysis/run_mission_analysis.py, mission_analysis/*.csv, mission_analysis/plots/.
+- Cross-simulation: px4_comparison/extracted_csv/, px4_comparison/scripts/, px4_comparison/comparison_results/.
+- Report build: report/build_report.py.
+
+### A.2 Traceability matrix
+
+| Objective | Primary evidence |
+|---|---|
+| Configuration and audit | Parameter register and architecture decision note |
+| Propulsion | Sweep table, verification summary, five propulsion figures |
+| Flight dynamics | Five test folders and Test 4 summary |
+| Mission analysis | Four mission CSV tables and five mission figures |
+| Cross-simulation | Aligned telemetry, replay CSV, metrics table, three comparison figures |
+
+### A.3 Legacy defect register
+
+| Legacy model | Defect | Resolution |
+|---|---|---|
+| Electro-mechanical propulsion | 1.5 m, 10 kg helicopter-scale rotor | Replaced with 0.254 m, 10-inch rotor |
+| Electro-mechanical propulsion | Zero winding resistance | Set to 0.085 $\Omega$ |
+| Electro-mechanical propulsion | 3.6 V single-cell pack | Replaced with 14.8 V 4S pack, 0.020 $\Omega$ |
+| Electro-mechanical propulsion | Opposing spin and thrust cancellation | CW/CCW routing verified |
+| Flight-dynamics baseline | 0.07 kg mass against 19.62 N thrust | Model retired and preserved unmodified |
+| Flight-dynamics baseline | $k_m=0$, no yaw authority | Replaced by $k_m=2.952\times10^{-7}$ |
+| Flight-dynamics baseline | Non-geometric mixing and default gains | Replaced by derived mixer and tuned PD gains |
