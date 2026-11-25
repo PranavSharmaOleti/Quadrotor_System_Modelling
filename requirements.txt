@@ -1,0 +1,9 @@
+# Python dependencies for the analysis scripts in this repository.
+# Versions are intentionally unpinned: no lock file or tested version set is
+# recorded in the repository, so inventing pins would be misleading.
+numpy
+pandas
+matplotlib
+pyulog          # extract_ulog.py, verify_step_ulog.py; needs a .ulg log
+mavsdk          # attitude_step.py, flight_test.py; needs a running PX4 SITL
+pypandoc-binary # report/build_report.py; system pandoc is an alternative

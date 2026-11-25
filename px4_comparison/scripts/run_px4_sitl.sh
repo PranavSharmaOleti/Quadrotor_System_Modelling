@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PX4 SITL + Gazebo in Docker, headless, software rendering.
-# Run from ~/Projects/Quadrotor-CrossSim
+# Run from anywhere; the script resolves its own directory below.
 set -euo pipefail
 
 cd "$(dirname "$0")"

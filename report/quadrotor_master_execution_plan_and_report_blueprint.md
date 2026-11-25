@@ -47,8 +47,8 @@ To connect `ElectroMechanics_Q_modified.slx` and `Quadrotor_6DoF.slx` without re
    Examine the translational dynamics equation:
    $$m\dot{\mathbf{v}} = R\begin{bmatrix}0\\0\\\sum_{i=1}^4 T_i\end{bmatrix} - \begin{bmatrix}0\\0\\mg\end{bmatrix} - D\mathbf{v}$$
    Because the body thrust vector $[0, 0, \sum T_i]^T$ is rotated by $R$ into the inertial frame and gravity $[0, 0, mg]^T$ is subtracted directly without a rotating-frame Coriolis term ($-\boldsymbol{\omega} \times \mathbf{v}$), the velocity vector $\mathbf{v} = [u, v, w]^T$ in this formulation represents the **inertial-frame velocity** $[\dot{x}, \dot{y}, \dot{z}]^T$. Consequently, position kinematics are simply $\dot{x} = u$, $\dot{y} = v$, $\dot{z} = w$. Do not multiply $\mathbf{v}$ by $R$ a second time when integrating position.
-2. **Trap 2 — Inertial Z-Up (NWU/ENU) vs. PX4's Z-Down (NED) Coordinate Convention:**
-   In the equation above, gravity acts in the $-Z$ direction and thrust acts in the $+Z_B$ direction, which defines a **Z-Up** coordinate frame (such as North-West-Up, NWU). However, **PX4 SITL logs telemetry in the North-East-Down (NED)** frame where $+Z$ points downward. When comparing PX4 telemetry against your 6-DoF model in Python, invert the signs of $z$, pitch ($\theta$), and yaw ($\psi$) (and their rates $w, q, r$) to align NED with NWU, and document this transformation explicitly.
+2. **Trap 2 — Coordinate Convention Consistency (FRD body / NED earth):**
+   The implemented plant and PX4 SITL both use a Forward–Right–Down (FRD) body frame and a North–East–Down (NED) local earth frame; $+Z$ points downward in both. The earlier NWU description in this blueprint is superseded: per `configuration/Quadrotor_Step4_Architecture_Decision_Note.md`, `px4_comparison/scripts/extract_ulog.py` and `px4_comparison/scripts/compare_px4_vs_6dof.py`, **no NED-to-NWU sign conversion is applied** to extracted telemetry. Keep the convention consistent at the block boundary instead of introducing a legacy sign flip.
 3. **Trap 3 — Mixer Sign Convention vs. Moments:**
    Ensure the signs in your $4 \times 4$ control allocation matrix exactly match the rotor moment arms ($\mathbf{r}_i \times \mathbf{F}_i$) and CW/CCW reaction torque signs inside the Newton–Euler block. A sign inversion in any row of the mixer turns negative feedback into positive feedback and causes immediate divergence in Test 5.
 
@@ -145,7 +145,7 @@ where $I_m^2 R_m$ is stator copper Joule heating (which grows quadratically with
 ### Section 4: Mathematical Formulation of the Replacement 6-DoF Model (`Quadrotor_6DoF.slx`)
 
 #### 4.1 Coordinate Convention & 12-State Vector
-The model adopts an **Inertial North-West-Up (NWU)** reference frame ($+X$ North, $+Y$ West, $+Z$ Up) and a body-fixed frame ($X_B$ forward, $Y_B$ left, $Z_B$ upward through the rotor plane). The 12-state vector is:
+The model adopts an **Inertial North-East-Down (NED)** reference frame ($+X$ North, $+Y$ East, $+Z$ Down) and a body-fixed **Forward–Right–Down (FRD)** frame ($X_B$ forward, $Y_B$ right, $Z_B$ down through the rotor plane). This supersedes the earlier NWU description; see `configuration/Quadrotor_Step4_Architecture_Decision_Note.md`. The 12-state vector is:
 $$\mathbf{x} = \begin{bmatrix} x & y & z & u & v & w & \phi & \theta & \psi & p & q & r \end{bmatrix}^T$$
 * **Inertial Position:** $\mathbf{p} = [x, y, z]^T$ ($\text{m}$)
 * **Inertial Velocity:** $\mathbf{v} = [u, v, w]^T = [\dot{x}, \dot{y}, \dot{z}]^T$ ($\text{m/s}$)
@@ -247,7 +247,7 @@ $$U_2 = K_{p,\phi}(\phi_{\text{ref}} - \phi) - K_{d,\phi} p, \qquad U_3 = K_{p,\
 ### Step 7: Execute PX4 SITL Scenario, Extract ULog & Run Quantitative Comparison (3 Hours)
 * Launch PX4 SITL with Gazebo, execute a hover followed by a roll or pitch step command, and copy the `.ulg` log to `px4_comparison/ulog/`.
 * Run `px4_comparison/scripts/extract_ulog.py` (using `pyulog`) to export attitude, attitude setpoints, and angular rates to CSV.
-* Feed the extracted setpoint sequence into `Quadrotor_6DoF.slx`, apply the NED-to-NWU sign conversion, and run `compare_px4_vs_6dof.py` to generate overlaid time-aligned plots and compute **RMSE**, **Rise Time**, and **Settling Time**.
+* Feed the extracted setpoint sequence into `Quadrotor_6DoF.slx` with `test_case = 7` (FRD body / NED earth throughout, **no sign conversion**) and run `px4_comparison/scripts/compare_px4_vs_6dof.py` to generate overlaid time-aligned plots and compute **RMSE**, **Rise Time**, and **Settling Time**.
 
 ---
 
@@ -295,8 +295,8 @@ Quadrotor_Project/
 │   │   ├── extract_ulog.py
 │   │   └── compare_px4_vs_6dof.py
 │   └── comparison_results/
-│       ├── attitude_time_aligned.png
-│       └── comparison_metrics.csv
+│       ├── attitude_overlay_comparison.png
+│       └── px4_vs_6dof_metrics.csv
 │
 ├── mission_analysis/
 │   ├── payload_thrust_margin.csv
